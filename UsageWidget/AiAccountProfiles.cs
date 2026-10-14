@@ -83,4 +83,25 @@ internal sealed record AiAccountPreferences(AiAccountProfile[] Profiles)
         return new([.. Profiles, profile]);
     }
     internal AiAccountPreferences Update(AiAccountProfile profile) => new(Profiles.Select(p => p.Id == profile.Id ? profile : p).ToArray());
+
+    internal AiAccountPreferences Remove(string id)
+    {
+        // Primary slots are required by the host, but must lose every saved-account marker.
+        // Extra slots are removed entirely, including entries hidden by older releases.
+        return new(Profiles.Where(p => p.Id != id || p.Id == p.Service).Select(p => p.Id == id
+            ? new AiAccountProfile(p.Service, p.Service, AiServices.Name(p.Service)) : p).ToArray());
+    }
+
+    internal ConnectionPreferences Save(string directory)
+    {
+        var codex = Profiles.Single(p => p.Id == "codex");
+        var claude = Profiles.Single(p => p.Id == "claude");
+        var connections = new ConnectionPreferences(codex.UseSystem, claude.UseSystem, codex.Enabled, claude.Enabled);
+        WidgetStorage.Write(Path.Combine(directory, "account-profiles.json"), this);
+        // Keep legacy registries in sync so an upgrade fallback cannot resurrect deleted tags.
+        WidgetStorage.Write(Path.Combine(directory, "codex-accounts.json"), new CodexAccountPreferences(
+            Profiles.Where(p => p.Service == "codex").Select(p => new CodexProfile(p.Id, p.Name, p.Enabled, p.UseSystem)).ToArray()));
+        WidgetStorage.Write(Path.Combine(directory, "connections.json"), connections);
+        return connections;
+    }
 }

@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import { animate, AnimatePresence, motion, useMotionValue, useSpring, useTransform } from 'motion/react';
-import { ArrowDownLeft, ArrowDownRight, ArrowUpLeft, ArrowUpRight, Check, ChevronDown, CirclePlus, Clock3, Grip, Link2, MoreHorizontal, Pin, Plus, RefreshCw, Rows3, LayoutPanelTop, Unplug, UserRound, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowDownRight, ArrowLeft, ArrowUpLeft, ArrowUpRight, ChevronDown, ChevronRight, CirclePlus, Clock3, Grip, Settings, Pin, Plus, Power, RefreshCw, Rows3, LayoutPanelTop, Trash2, UserRound, X } from 'lucide-react';
 import './style.css';
 import { nextDisplayDelay } from './displayClock.js';
 
-const native = window.chrome?.webview;
+const native = window.aiUsageNative ?? window.chrome?.webview;
 const send = (action, extra = {}) => native?.postMessage({ action, ...extra });
 const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 const subscribeMotion = callback => { motionPreference.addEventListener('change', callback); return () => motionPreference.removeEventListener('change', callback); };
@@ -24,6 +24,7 @@ const defaultName = provider => provider.defaultName ?? provider.name ?? catalog
 const accountAlias = provider => provider.nickname ?? (provider.defaultName && provider.name !== provider.defaultName ? provider.name : null);
 const providerName = provider => accountAlias(provider) ? `${defaultName(provider)} · ${accountAlias(provider)}` : defaultName(provider);
 const savedAccount = account => account.enabled || account.id !== serviceOf(account) || account.status === 'connected';
+const managedAccounts = state => (state.accounts ?? initial.accounts).filter(account => state.providers.some(provider => provider.id === account.id) || savedAccount(account));
 function AccountLabel({ account }) {
   const alias = accountAlias(account);
   return <span className="account-label"><span className="account-service">{defaultName(account)}</span>{alias && <><span className="account-alias-dot" aria-hidden="true">·</span><span className="account-alias" title={alias}>{alias}</span></>}</span>;
@@ -50,14 +51,20 @@ native?.addEventListener('message', event => {
 
 function Triangle({ active = false, connected = false, large = false, transitioning = false, rotation = 0, rotationStep = 120, onSpinComplete }) {
   const reduce = useReducedMotion();
+  const [refreshTurns, setRefreshTurns] = useState(0);
+  const wasActive = useRef(false);
+  useEffect(() => {
+    // Keep the completed angle when a request finishes, even if it finishes mid-turn.
+    if (active && !wasActive.current && !transitioning && !reduce) setRefreshTurns(turns => turns + 1);
+    wasActive.current = active;
+  }, [active, transitioning, reduce]);
   const waving = connected && !transitioning && !reduce;
-  const spinning = transitioning || (active && !reduce);
   const from = transitioning ? rotation - rotationStep : rotation;
   return <motion.svg className={`triangle ${connected ? 'connected' : 'disconnected'} ${large ? 'large' : ''} ${waving ? 'waving' : ''} ${active && !reduce ? 'syncing' : ''}`} viewBox="0 0 40 40" fill="none" aria-label={transitioning ? '화면 전환 중' : active ? '갱신 중' : connected ? '모든 AI 연결됨' : 'AI 연결 확인 필요'}
     style={{ transformOrigin: '50% 58.333333%' }} initial={{ rotate: from }}
-    animate={{ rotate: spinning ? transitioning ? [from, rotation] : [rotation, rotation + 120, rotation + 240, rotation + 360] : rotation }}
+    animate={{ rotate: transitioning ? [from, rotation] : rotation + refreshTurns * 360 }}
     onAnimationComplete={transitioning ? onSpinComplete : undefined}
-    transition={spinning ? { duration: transitioning ? .48 : 1.6, repeat: transitioning ? 0 : Infinity, ease: 'easeInOut' } : { duration: .25 }}>
+    transition={{ duration: transitioning ? .48 : reduce ? 0 : 1.6, ease: 'easeInOut' }}>
     {['M20 4 L27 16 L13 16 Z', 'M30 21 L37 33 L23 33 Z', 'M10 21 L17 33 L3 33 Z'].map((d, i) =>
       // CSS keeps a continuous ripple across React's periodic state updates.
       // Negative phases spread the three pieces evenly around the wave.
@@ -249,13 +256,15 @@ function AccountNickname({ account, disabled, onSave }) {
   </form>;
 }
 
-function Accounts({ state, onAdd, onRestore, onRename }) {
+function Accounts({ state, onAdd, onRemove, onRestore, onRename, expandedId, onExpand }) {
   const locked = state.busy || state.authBusy;
-  const accounts = (state.accounts ?? initial.accounts).filter(account => state.providers.some(provider => provider.id === account.id)
-    || savedAccount(account));
+  const accounts = managedAccounts(state);
+  useEffect(() => {
+    if (expandedId) document.getElementById(`account-details-${expandedId}`)?.closest('.managed-account')?.scrollIntoView({ block: 'nearest' });
+  }, [expandedId]);
   if (!accounts.length) return <div className="account-empty"><p>연결할 AI를 먼저 추가하세요.</p><button className="account-primary" onClick={onAdd}><Plus size={13} />AI 추가</button></div>;
   return <div className="accounts-content">
-    <p className="account-intro">서비스를 고르고 계정을 추가하세요. AI마다 여러 계정을 연결할 수 있고 로그인과 사용량 기록은 계정별로 보관합니다.</p>
+    <p className="account-intro">계정을 선택해 로그인, 별명 변경과 삭제를 할 수 있습니다.</p>
     <button className="account-add" aria-label="AI 계정 추가" disabled={locked} onClick={onAdd}><Plus size={13} />AI 계정 추가</button>
     {accounts.map(account => {
       const claude = serviceOf(account) === 'claude';
@@ -264,10 +273,15 @@ function Accounts({ state, onAdd, onRestore, onRename }) {
       const visible = state.providers.some(provider => provider.id === account.id);
       const connected = account.status === 'connected';
       const signing = account.status === 'signingIn';
-      return <section className={`account-box ${providerClass(account)}`} data-account-id={account.id} key={account.id} aria-label={`${name} 계정 연결`}>
-        <div className="account-box-head"><strong title={name}><AccountLabel account={account} /></strong><span>{account.source === 'system' ? '기존 CLI 공유' : '위젯 전용'}</span></div>
-        <div className="account-email" title={account.email}>{account.email ?? (signing ? '공식 로그인 화면에서 진행 중…' : connected ? '로그인된 계정' : !visible && account.enabled ? '저장된 계정 · 카드 표시 후 연결 확인' : '연결된 계정 없음')}</div>
-        <AccountNickname account={account} disabled={locked} onSave={onRename} />
+      const expanded = expandedId === account.id || signing;
+      return <section className={`account-box managed-account ${providerClass(account)}`} data-account-id={account.id} key={account.id} aria-label={`${name} 계정 관리`}>
+        <button className="account-summary" aria-label={`${name} 계정 관리`} aria-expanded={expanded} aria-controls={`account-details-${account.id}`} onClick={() => onExpand(expanded ? null : account.id)}>
+          <span className="account-summary-copy"><strong><AccountLabel account={account} /></strong><small title={account.email}>{account.email ?? (signing ? '로그인 진행 중' : connected ? '로그인된 계정' : '로그인이 필요합니다')}</small></span>
+          <span className={`account-status ${connected ? 'connected' : ''}`}>{!visible ? '숨김' : signing ? '로그인 중' : connected ? '연결됨' : '미연결'}</span><ChevronDown size={13} />
+        </button>
+        {expanded && <div className="account-details" id={`account-details-${account.id}`}>
+        <h3 className="settings-section-title">로그인</h3>
+        <p className="account-source">{account.source === 'system' ? '기존 CLI 계정과 연결됨' : '이 앱의 전용 계정'}</p>
         {account.message && <p className="account-message">{account.message}</p>}
         {signing ? <>
           <p>{claude ? '공식 Claude Code 창과 브라우저에서 직접 완료해주세요.' : '브라우저에서 ChatGPT 로그인을 직접 완료해주세요.'}</p>
@@ -277,11 +291,15 @@ function Accounts({ state, onAdd, onRestore, onRename }) {
           <div className="account-buttons">{account.id === serviceOf(account) && <button className="account-secondary" title="선택한 AI의 기존 CLI 계정을 사용합니다. Claude 상태줄 설정은 백업합니다." disabled={locked || !native || (connected && account.source === 'system')} onClick={() => send('useExistingAccount', { accountId: account.id })}>기존 CLI 계정 사용</button>}{connected && <button className="account-secondary" disabled={locked || !native} onClick={() => send('logoutAccount', { accountId: account.id })}>{account.source === 'system' ? '연결 해제' : '로그아웃'}</button>}</div>
           {claude && connected && <button className="account-launch" disabled={locked || !native} onClick={() => send('launchClaudeCode', { accountId: account.id })}>이 계정으로 Claude Code 열기<ArrowUpRight size={12} /></button>}
         </>}
+        <AccountNickname account={account} disabled={locked} onSave={onRename} />
+        <div className="account-display-actions">
         {!visible && <button className="account-secondary account-restore" disabled={locked} onClick={() => onRestore(account.id)}>카드 다시 표시</button>}
+        <button className="account-remove" aria-label={`${name} 계정 항목 삭제`} disabled={locked} onClick={() => onRemove(account.id)}><Trash2 size={12} />계정 항목 삭제</button>
+        </div>
         {claude && <p className="account-caption">연결 직후와 이후 5분마다 사용량을 조회합니다. Claude에게 메시지를 보내지 않습니다. 자동 조회는 최신 Claude Code가 필요하며, 응답 후 상태줄 수신도 유지합니다.</p>}
+        </div>}
       </section>;
     })}
-    {state.notice && <div role="status" className="notice">{state.notice}</div>}
   </div>;
 }
 
@@ -289,14 +307,13 @@ function EmptyDashboard({ onAdd }) {
   return <div className="empty-dashboard"><div className="empty-plus"><Plus size={21} strokeWidth={1.5} /></div><h2>AI를 추가하세요</h2><p>보고 싶은 AI의 사용량만 모아보세요.</p><button className="add-ai-button" aria-label="첫 AI 추가" onClick={onAdd}><Plus size={12} />AI 선택하기</button></div>;
 }
 
-function ProviderPicker({ state, onAdd, onRemove, onRestore }) {
+function ProviderPicker({ state, onAdd }) {
   return <div className="provider-picker"><p>추가할 계정의 AI를 선택하세요. 같은 AI도 여러 번 추가할 수 있습니다.</p><div className="provider-catalog">{(state.serviceCatalog ?? catalog).map(service => {
     const added = state.providers.some(provider => provider.id === service.id);
     return <button key={service.id} className={`catalog-option ${service.id}`} aria-label={`${service.name} 추가`} disabled={state.busy || state.authBusy} onClick={() => onAdd(service.id)}>
       <span className="catalog-symbol">{service.symbol}</span><span className="catalog-copy"><strong>{added ? `${service.name} 계정 추가` : service.name}</strong><small>{service.description} · 여러 계정</small></span><Plus size={14} />
     </button>;
-  })}</div>{state.providers.length > 0 && <div className="selected-providers"><div className="selected-title">표시 중 <span>{state.providers.length}개</span></div>{state.providers.map(provider => <div className="selected-provider" key={provider.id}><span title={state.accounts?.find(account => account.id === provider.id)?.email}><AccountLabel account={provider} /></span><button aria-label={`${providerName(provider)} 카드 제거`} disabled={state.busy || state.authBusy} onClick={() => onRemove(provider.id)}>제거<X size={11} /></button></div>)}<p className="picker-hint">카드를 제거해도 로그인은 유지됩니다.</p></div>}
-    {(state.accounts ?? []).filter(account => savedAccount(account) && !state.providers.some(provider => provider.id === account.id)).map(account => <div className="selected-provider" key={account.id}><span><AccountLabel account={account} /></span><button disabled={state.busy || state.authBusy} onClick={() => onRestore(account.id)}>다시 표시<Plus size={11} /></button></div>)}
+  })}</div><p className="settings-help">추가한 계정은 계정 관리에서 로그인할 수 있습니다.</p>
   </div>;
 }
 
@@ -328,10 +345,65 @@ function MeasurementSettings({ state, onChange }) {
   </div>;
 }
 
+function SettingsHome({ state, onNavigate, onQuit }) {
+  const sections = [
+    { page: 'accounts', title: '계정 관리', description: '추가 · 로그인 · 별명 · 삭제', value: `${managedAccounts(state).length}개 계정`, Icon: UserRound },
+    { page: 'measurement', title: '사용량 측정', description: '관측 사용량 계산 기준', value: `집계 ${measurementLabel(state.measurementIntervalMinutes ?? 30)} · 비교 ${measurementLabel(state.measurementWindowMinutes ?? 30)}`, Icon: Clock3 },
+    { page: 'appearance', title: '화면 설정', description: state.platform === 'macos' ? '화면 전환 애니메이션' : '애니메이션 · 창 고정 · 위치', value: state.animateTransitions !== false ? '애니메이션 켜짐' : '애니메이션 꺼짐', Icon: LayoutPanelTop }
+  ];
+  return <>
+    <nav className="settings-nav" aria-label="설정 분류">{sections.map(({ page, title, description, value, Icon }) =>
+      <button key={page} className="settings-link" aria-label={title} onClick={() => onNavigate(page)}>
+        <span className="settings-link-icon"><Icon size={17} /></span><span className="settings-link-copy"><strong>{title}</strong><small>{description}</small><span>{value}</span></span><ChevronRight size={14} />
+      </button>
+    )}</nav>
+    <div className="settings-app-actions"><button className="menu-row close-row" onClick={onQuit}><Power size={14} />AI Usage 종료</button></div>
+  </>;
+}
+
+function AppearanceSettings({ state, onAction }) {
+  const menuBar = state.platform === 'macos';
+  return <div className="appearance-settings">
+    <section className="settings-section"><h3 className="settings-section-title">애니메이션</h3>
+      <button className="settings-switch-row" role="switch" aria-label="화면 전환 애니메이션" aria-checked={state.animateTransitions !== false} onClick={() => onAction('toggleMotion')}>
+        <span><strong>부드러운 화면 전환</strong><small>{menuBar ? '메뉴 창을 열고 닫을 때 적용' : '카드를 펼치고 접을 때 적용'}</small></span><span className="settings-switch" aria-hidden="true" />
+      </button>
+    </section>
+    {!menuBar && <section className="settings-section"><h3 className="settings-section-title">창 위치</h3>
+      <button className="settings-switch-row" role="switch" aria-label="항상 위에 표시" aria-checked={!!state.pinned} onClick={() => onAction('pin')}>
+        <span><strong>항상 위에 표시</strong><small>다른 창 위에 위젯 유지</small></span><span className="settings-switch" aria-hidden="true" />
+      </button>
+      <div className="dock-heading">화면 모서리<span>드래그 위치에 따라 자동 전환</span></div>
+      <div className="dock-options" role="group" aria-label="화면 모서리">{cornerOptions.map(({ id, label, Icon }) => <button key={id} className="dock-option" aria-label={`${label}에 붙이기`} aria-pressed={(state.anchorCorner ?? 1) === id} onClick={() => onAction('dock', { corner: id })}><Icon size={12} />{label}</button>)}</div>
+    </section>}
+  </div>;
+}
+
+const settingsPages = { settings: '설정', accounts: '계정 관리', providers: '계정 추가', measurement: '사용량 측정', appearance: '화면 설정' };
+function SettingsPanel({ page, onBack, onClose, notice, children }) {
+  const heading = useRef(null);
+  const content = useRef(null);
+  useEffect(() => { content.current.scrollTop = 0; heading.current.focus({ preventScroll: true }); }, [page]);
+  return <section className="menu settings-panel" aria-labelledby="settings-title">
+    <header className="settings-heading">
+      {page === 'settings' ? <Settings className="settings-heading-icon" size={16} /> : <button className="icon-button" aria-label={page === 'providers' ? '계정 관리로 돌아가기' : '설정으로 돌아가기'} onClick={onBack}><ArrowLeft size={16} /></button>}
+      <h2 id="settings-title" ref={heading} tabIndex={-1}>{settingsPages[page]}</h2>
+      <button className="icon-button" aria-label="설정 닫기" title="사용량으로 돌아가기" onClick={onClose}><X size={16} /></button>
+    </header>
+    <div className="settings-content" ref={content}>
+      {notice && <div role="status" className="notice settings-notice">{notice}</div>}
+      {children}
+    </div>
+  </section>;
+}
+
 function App() {
   const [state, setState] = useState(latest);
+  const menuBar = state.platform === 'macos';
   const [menu, setMenu] = useState(false);
   const [menuPage, setMenuPage] = useState('settings');
+  const [expandedAccountId, setExpandedAccountId] = useState(null);
+  const pendingAccount = useRef(null);
   const reduce = useReducedMotion();
   const panel = useRef(null);
   const mode = state.viewMode ?? (state.collapsed ? 1 : 0);
@@ -372,6 +444,12 @@ function App() {
     return () => observer.disconnect();
   }, [mode, revision, transitionReduce]);
   useEffect(() => { if (mode === 2) setMenu(false); }, [mode]);
+  useEffect(() => {
+    if (!pendingAccount.current) return;
+    const { service, previous } = pendingAccount.current;
+    const added = state.providers.find(provider => serviceOf(provider) === service && !previous.includes(provider.id));
+    if (added) { setExpandedAccountId(added.id); pendingAccount.current = null; }
+  }, [state.providers]);
   useEffect(() => { if (transitionReduce) setFinishedRevision(revision); }, [transitionReduce, revision]);
   useEffect(() => {
     if (transitionReduce) { setContentReadyRevision(revision); return; }
@@ -395,14 +473,17 @@ function App() {
     else if (name === 'toggleMotion') setState(s => ({ ...s, animateTransitions: s.animateTransitions === false }));
     else if (name === 'refresh' && preview) { setState(s => ({ ...s, busy: true })); setTimeout(() => setState(s => ({ ...s, busy: false })), 2200); }
   };
-  const openAccounts = () => { if (mode !== 0) action('showFull'); setMenuPage('accounts'); setMenu(true); };
-  const openPicker = () => { if (mode !== 0) action('showFull'); setMenuPage('providers'); setMenu(true); };
-  const openMeasurements = () => { if (mode !== 0) action('showFull'); setMenuPage('measurement'); setMenu(true); };
+  const openSettingsPage = page => { setMenuPage(page); setMenu(true); };
+  const openAccounts = id => { setExpandedAccountId(id ?? null); openSettingsPage('accounts'); };
+  const openPicker = () => openSettingsPage('providers');
+  const openMeasurements = () => openSettingsPage('measurement');
   const changeMeasurement = (kind, minutes) => {
     if (native) send(kind === 'window' ? 'setMeasurementWindow' : 'setMeasurementInterval', { minutes });
     else setState(s => ({ ...s, [kind === 'window' ? 'measurementWindowMinutes' : 'measurementIntervalMinutes']: minutes }));
   };
   const addProvider = id => {
+    pendingAccount.current = { service: id, previous: state.providers.map(provider => provider.id) };
+    setMenuPage('accounts');
     if (native) send('addProvider', { provider: id });
     else setState(s => {
       const added = s.providers.some(p => p.id === id);
@@ -414,8 +495,9 @@ function App() {
     });
   };
   const removeProvider = id => {
+    if (expandedAccountId === id) setExpandedAccountId(null);
     if (native) send('removeProvider', { provider: id });
-    else setState(s => ({ ...s, providers: s.providers.filter(provider => provider.id !== id) }));
+    else setState(s => ({ ...s, providers: s.providers.filter(provider => provider.id !== id), accounts: s.accounts.filter(account => account.id !== id) }));
   };
   const restoreProvider = id => {
     if (native) send('showProvider', { provider: id });
@@ -437,45 +519,43 @@ function App() {
         providers: s.providers.map(item => item.id === id ? { ...item, defaultName: item.defaultName ?? item.name ?? defaultName, name: alias ?? (item.defaultName ?? defaultName) } : item) };
     });
   };
-  return <div className={`view-shell ${changing ? 'is-transitioning' : ''} ${logoMoving ? 'is-logo-moving' : ''}`} ref={panel}><AnimatePresence initial={false} mode="popLayout">
+  const refreshButton = <button className={`icon-button refresh ${state.busy ? 'rotating' : ''}`} aria-label="사용량 새로고침"
+    title={state.busy ? '사용량 업데이트 중' : menuBar ? '새로고침 · ⌘R 또는 F5' : '새로고침 · Codex 자동 갱신 60초'}
+    disabled={state.providers.length === 0 || state.busy || state.authBusy} onClick={() => action('refresh')}><RefreshCw size={menuBar ? 14 : 12} /></button>;
+  return <div className={`view-shell ${menuBar ? 'menu-bar-host' : ''} ${changing ? 'is-transitioning' : ''} ${logoMoving ? 'is-logo-moving' : ''}`} ref={panel}><AnimatePresence initial={false} mode="popLayout">
   {mode === 2 ? <motion.div key="logo" data-view={mode} className="logo-shell" role="button" tabIndex={0} aria-label="이전 카드로 돌아가기"
     title={`${state.lastCardView === 1 ? '간략히' : '자세히'} 보기로 돌아가기 · 드래그해서 이동`} onClick={() => action('toggleLogo')}
     onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); action('toggleLogo'); } }}
     initial={transitionReduce ? false : { opacity: 0 }} animate={{ opacity: changing ? 0 : 1 }} exit={{ opacity: 0, transition: { duration: transitionReduce ? 0 : .08 } }} transition={{ duration: transitionReduce ? 0 : .08 }}>
     <Triangle connected={allConnected} active={!logoMoving && (state.busy || state.authBusy)} rotation={logoRotation} />
-  </motion.div> : <motion.div key={`card-${mode}`} data-view={mode} className="widget" style={{ '--card-max-height': `${(state.maxCardHeight ?? 880) - 2}px`, ...(native ? { width: 302 } : {}), ...(menu ? { minHeight: Math.min((state.maxCardHeight ?? 880) - 2, menuPage === 'accounts' ? 510 : menuPage === 'measurement' ? 520 : menuPage === 'providers' ? state.providers.length === 0 ? 310 : 410 + (state.providers.length - 1) * 30 : 520) } : {}) }}
+  </motion.div> : <motion.div key={`card-${mode}`} data-view={mode} className={`widget ${menu ? 'settings-open' : ''}`} style={{ '--card-max-height': `${(state.maxCardHeight ?? 880) - 2}px`, ...(native ? { width: 302 } : {}) }}
     initial={transitionReduce ? false : { opacity: 0, y: 4 }} animate={{ opacity: changing ? 0 : 1, y: changing ? 4 : 0 }} exit={{ opacity: 0, transition: { duration: transitionReduce ? 0 : .08 } }}
     transition={{ duration: transitionReduce ? 0 : changing ? .08 : .13, ease: [.22, 1, .36, 1] }}>
+    {menu ? <SettingsPanel page={menuPage} onBack={() => setMenuPage(menuPage === 'providers' ? 'accounts' : 'settings')} onClose={() => setMenu(false)} notice={state.notice}>
+      {menuPage === 'accounts' ? <Accounts state={state} onAdd={openPicker} onRemove={removeProvider} onRestore={restoreProvider} onRename={renameAccount} expandedId={expandedAccountId} onExpand={setExpandedAccountId} />
+        : menuPage === 'providers' ? <ProviderPicker state={state} onAdd={addProvider} />
+        : menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} />
+        : menuPage === 'appearance' ? <AppearanceSettings state={state} onAction={action} />
+        : <SettingsHome state={state} onNavigate={page => page === 'accounts' ? openAccounts() : openSettingsPage(page)} onQuit={() => action('close')} />}
+    </SettingsPanel> : <>
     <header className="header">
-      <div className="drag-zone" title="드래그해서 이동"><button className="logo-toggle" aria-label="로고만 표시" title="로고만 표시 · 다시 누르면 이 화면으로 돌아오기" onClick={() => { setMenu(false); action('toggleLogo'); }}><Triangle connected={allConnected} active={!logoMoving && (state.busy || state.authBusy)} rotation={logoRotation} /></button><div className="wordmark">AI<span>USAGE</span></div><Grip className="grip" size={13} /></div>
-      <div className="header-actions"><button className={`icon-button ${state.pinned ? 'selected' : ''}`} title={state.pinned ? '항상 위 고정 해제' : '항상 위에 고정'} aria-label="항상 위에 고정" aria-pressed={state.pinned} onClick={() => action('pin')}><Pin size={13} /></button><button className="icon-button" title="AI 추가·제거" aria-label="AI 추가" onClick={openPicker}><CirclePlus size={14} /></button><button className="icon-button view-toggle" title={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-label={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-pressed={mode === 0} onClick={() => { setMenu(false); action('toggleDetails'); }}>{mode === 0 ? <Rows3 size={14} /> : <LayoutPanelTop size={14} />}</button><button className={`icon-button ${menu ? 'selected' : ''}`} title="설정" aria-label="설정" onClick={() => { setMenuPage('settings'); setMenu(!menu); }}><MoreHorizontal size={17} /></button></div>
+      <div className="drag-zone" title={menuBar ? "AI Usage" : "드래그해서 이동"}><button className="logo-toggle" aria-label={menuBar ? "메뉴 막대로 닫기" : "로고만 표시"} title={menuBar ? "메뉴 막대로 닫기 · 조회는 계속됩니다" : "로고만 표시 · 다시 누르면 이 화면으로 돌아오기"} onClick={() => { setMenu(false); action('toggleLogo'); }}><Triangle connected={allConnected} active={!logoMoving && (state.busy || state.authBusy)} rotation={logoRotation} /></button><div className="wordmark">AI<span>USAGE</span></div>{!menuBar && <Grip className="grip" size={13} />}</div>
+      <div className="header-actions">
+        {menuBar && refreshButton}
+        {!menuBar && <button className={`icon-button ${state.pinned ? 'selected' : ''}`} title={state.pinned ? '항상 위 고정 해제' : '항상 위에 고정'} aria-label="항상 위에 고정" aria-pressed={state.pinned} onClick={() => action('pin')}><Pin size={13} /></button>}
+        <button className="icon-button" title="AI 계정 추가" aria-label="AI 추가" onClick={openPicker}><CirclePlus size={14} /></button>
+        <button className="icon-button view-toggle" title={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-label={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-pressed={mode === 0} onClick={() => { setMenu(false); action('toggleDetails'); }}>{mode === 0 ? <Rows3 size={14} /> : <LayoutPanelTop size={14} />}</button>
+        <button className="icon-button settings-button" title="설정" aria-label="설정" onClick={() => openSettingsPage('settings')}><Settings size={17} /></button>
+      </div>
     </header>
       {state.providers.length === 0 ? <EmptyDashboard onAdd={openPicker} /> : mode === 1 ? <motion.div key="compact" className="compact" data-count={state.providers.length} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : .14 }}>
         {state.providers.map(p => <CompactProvider key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} intervalMinutes={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} />)}
       </motion.div> : <motion.main key="expanded" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : .14 }}>
-        <div className="cards">{state.providers.map(p => <ProviderCard key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} busy={state.busy} onConnect={openAccounts} measurementInterval={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} services={state.serviceCatalog ?? catalog} />)}</div>
+        <div className="cards">{state.providers.map(p => <ProviderCard key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} busy={state.busy} onConnect={() => openAccounts(p.id)} measurementInterval={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} services={state.serviceCatalog ?? catalog} />)}</div>
       </motion.main>}
-    <footer><span className="footer-status"><span className={`pulse-dot ${state.busy || state.authBusy ? 'working' : ''}`} />{state.authBusy ? '로그인 완료 대기 중' : state.busy ? '사용량 업데이트 중' : state.pinned ? '항상 위에 고정됨' : '고정 해제됨'}</span><button className={`icon-button refresh ${state.busy ? 'rotating' : ''}`} aria-label="사용량 새로고침" title="새로고침 · Codex 자동 갱신 60초" disabled={state.providers.length === 0 || state.busy || state.authBusy} onClick={() => action('refresh')}><RefreshCw size={12} /></button></footer>
+    {!menuBar && <footer><span className="footer-status"><span className={`pulse-dot ${state.busy || state.authBusy ? 'working' : ''}`} />{state.authBusy ? '로그인 완료 대기 중' : state.busy ? '사용량 업데이트 중' : state.pinned ? '항상 위에 고정됨' : '고정 해제됨'}</span>{refreshButton}</footer>}
+    </>}
     {preview && <div className="preview-label">디자인 미리보기 · 예시 데이터</div>}
-    <AnimatePresence>{menu && <motion.div className="menu-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMenu(false)}>
-      <motion.div className="menu" initial={{ y: -8, scale: .97 }} animate={{ y: 0, scale: 1 }} exit={{ y: -8, scale: .97 }} transition={{ duration: reduce ? 0 : .2 }} onClick={e => e.stopPropagation()}>
-        <div className="menu-title">{menuPage === 'accounts' ? '계정 연결' : menuPage === 'providers' ? 'AI 추가' : menuPage === 'measurement' ? '사용량 측정' : '카드 설정'}<button className="icon-button" aria-label="설정 닫기" onClick={() => setMenu(false)}><X size={14} /></button></div>
-        {menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} /> : menuPage === 'providers' ? <ProviderPicker state={state} onAdd={addProvider} onRemove={removeProvider} onRestore={restoreProvider} /> : menuPage === 'accounts' ? <Accounts state={state} onAdd={openPicker} onRestore={restoreProvider} onRename={renameAccount} /> : <>
-        <button className="menu-row" onClick={openPicker}><Plus size={14} />AI 추가·제거</button>
-        <button className="menu-row" aria-label="사용량 측정 설정" onClick={openMeasurements}><Clock3 size={14} />사용량 측정 설정<span className="measurement-menu-value">{measurementLabel(state.measurementIntervalMinutes ?? 30)}</span></button>
-        <button className="menu-row" onClick={() => action('pin')}><Pin size={14} />항상 위에 표시{state.pinned && <Check size={13} />}</button>
-        <button className="menu-row" aria-label="부드러운 펼치기·접기" aria-pressed={state.animateTransitions !== false} onClick={() => action('toggleMotion')}><ChevronDown size={14} />부드러운 펼치기·접기{state.animateTransitions !== false && <Check size={13} />}</button>
-        <div className="dock-heading">화면 모서리<span>드래그 위치에 따라 자동 전환</span></div>
-        <div className="dock-options" role="group" aria-label="화면 모서리">{cornerOptions.map(({ id, label, Icon }) => <button key={id} className="dock-option" aria-label={`${label}에 붙이기`} aria-pressed={(state.anchorCorner ?? 1) === id} onClick={() => { action('dock', { corner: id }); setMenu(false); }}><Icon size={12} />{label}</button>)}</div>
-        <div className="menu-divider" />
-        <button className="menu-row accent-row" aria-label="계정 연결 관리" onClick={openAccounts}><UserRound size={14} />계정 로그인 · 연결 관리<ArrowUpRight size={12} /></button>
-        <p className="menu-hint">연결된 계정 확인, OAuth 로그인, 계정 변경과 로그아웃을 관리합니다.</p>
-        {state.notice && <div role="status" className="notice">{state.notice}</div>}
-        <div className="menu-divider" />
-        <button className="menu-row close-row" onClick={() => action('close')}><X size={14} />위젯 종료</button>
-        </>}
-      </motion.div>
-    </motion.div>}</AnimatePresence>
   </motion.div>}
   </AnimatePresence>
   {logoMoving && <motion.div key={`transition-mark-${revision}`} className="transition-mark" aria-hidden="true"
