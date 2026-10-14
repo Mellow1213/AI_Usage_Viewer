@@ -2,6 +2,35 @@
 
 Windows 화면 옆에 붙여놓는 WPF + React 사용량 카드입니다. 기존 OpenClawViewer와 별도 앱으로 실행됩니다.
 
+## 구동 화면
+
+실제 WPF + WebView2 앱에서 캡처한 화면입니다. 아래 사용량 수치는 검증용 예시 데이터이며, 개인 계정 정보는 포함하지 않았습니다.
+
+<table>
+  <tr>
+    <th>자세히 보기</th>
+    <th>간략히 보기 · 로고만 보기</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/cards.png" alt="Codex와 Claude의 잔여량, 관측 사용량, 리셋 시간을 표시하는 자세히 보기 화면" width="304"></td>
+    <td valign="top">
+      <img src="docs/screenshots/compact.png" alt="Codex와 Claude를 나란히 표시하는 간략히 보기 화면" width="304">
+      <p>삼각형을 누르면 로고만 남고, 다시 누르면 이전 화면으로 돌아옵니다.</p>
+      <img src="docs/screenshots/logo-only.png" alt="삼각형 세 개만 남긴 최소화 화면" width="48">
+    </td>
+  </tr>
+</table>
+
+<details>
+<summary>처음 실행 · 사용량 측정 설정 화면</summary>
+
+처음 실행할 때 원하는 AI를 추가합니다. 사용량 집계 주기는 1분~3시간, 비교 구간은 30분~1일 범위에서 선택할 수 있습니다.
+
+<img src="docs/screenshots/empty-dashboard.png" alt="AI를 추가하세요 안내가 표시되는 첫 실행 화면" width="304">
+<img src="docs/screenshots/measurement-settings.png" alt="집계 주기 슬라이더와 비교 구간을 선택하는 사용량 측정 설정 화면" width="304">
+
+</details>
+
 ## 실행
 
 루트의 `run-widget.cmd`를 더블 클릭하거나 `Release/AIUsageWidget.exe`를 실행합니다. **Release 폴더 전체**가 필요합니다. Windows x64용 .NET 런타임이 포함되어 있어 .NET을 따로 설치하지 않아도 됩니다. Edge WebView2 Runtime은 필요합니다. AI 계정 연결에는 각 서비스의 공식 Codex CLI·Claude Code CLI가 필요하며, 각 사용자가 자신의 계정으로 로그인합니다.
