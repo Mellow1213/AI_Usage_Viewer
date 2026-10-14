@@ -1,134 +1,148 @@
-# AI Usage Widget
+# AI Usage Widget 개발 안내
 
-Codex와 Claude의 구독 잔여량을 화면 옆의 작은 카드로 확인하는 Windows 데스크톱 위젯입니다. WPF + React로 구현했으며, 자세히 보기·간략히 보기·로고만 보기 모드를 지원합니다.
+설치·사용법, 화면 예시, 문제 해결과 사용자 데이터 설명은 [루트 README](../README.md)를 참고하세요. 이 문서는 소스 빌드와 구현·검증을 다룹니다.
 
-## 실행
+## 개발 환경과 빌드
 
-루트의 `run-widget.cmd`를 더블 클릭하거나 `Release/AIUsageWidget.exe`를 실행합니다. **Release 폴더 전체**가 필요합니다. Windows x64용 .NET 런타임이 포함되어 있어 .NET을 따로 설치하지 않아도 됩니다. Edge WebView2 Runtime은 필요합니다. AI 계정 연결에는 각 서비스의 공식 Codex CLI·Claude Code CLI가 필요하며, 각 사용자가 자신의 계정으로 로그인합니다.
+| 항목 | 요구 사항 |
+|---|---|
+| 운영체제 | Windows. 배포 대상은 `win-x64`입니다. |
+| .NET | .NET 8 SDK. WPF 프로젝트는 `net8.0-windows10.0.17763.0`을 대상으로 합니다. |
+| UI 도구 | npm과 Node.js. 잠금 파일의 Vite 7.3.7은 `^20.19.0 \|\| >=22.12.0`을 요구합니다. |
+| 화면 검증 | Microsoft Edge WebView2 Runtime |
+| 실제 계정 조회 | 연결할 서비스의 공식 Windows CLI와 해당 구독 계정 |
 
-- 폭 304 DIP. Windows 배율에 맞춰 표시하고 높이는 실제 카드 내용에 맞춰 바뀝니다.
-- 실행 파일·작업 표시줄·시작 화면에는 가장 작게 접었을 때의 삼각형 세 개 로고를 사용합니다. Windows 아이콘은 16~256px의 10개 해상도를 포함합니다. 원본은 `Assets/usage-widget.svg`이며, 수정 후 `powershell.exe -NoProfile -STA -File .\UsageWidget\Tools\generate-icon.ps1`로 ICO와 시작 화면 PNG를 다시 생성합니다.
-- 처음에는 `AI를 추가하세요` 화면으로 시작합니다. 상단 `+` 또는 `AI 선택하기`에서 Codex·Claude를 선택하면 선택한 AI만 표시합니다. Codex·Claude 모두 여러 계정을 각각의 카드로 추가할 수 있습니다. 서로 다른 AI의 계정도 한 대시보드에 함께 표시합니다. 카드 수에 맞춰 화면 높이가 바뀌고, 화면보다 많아지면 카드 영역을 스크롤해서 볼 수 있습니다.
-- `+` 또는 `… → AI 추가·제거`에서 카드를 제거할 수 있습니다. 카드 제거는 로그아웃이 아니며, 다시 추가하면 기존 연결을 사용할 수 있습니다. 목록과 추가 순서는 `dashboard.json`에 저장합니다. 같은 AI를 다시 선택하면 별도의 계정 카드가 만들어지며, 숨긴 계정은 `다시 표시`로 복원할 수 있습니다. 기존 버전에서 연결해둔 계정은 업데이트 후에도 표시합니다.
-- 오른쪽 위에 배치되며, 상단 AI USAGE 영역을 드래그해서 옮길 수 있습니다.
-- 이동은 WebView2의 native 제목줄 영역으로 처리합니다. 핀은 항상 위에 표시하는 기능이며 위치 이동을 막지 않습니다.
-- 핀: 항상 위에 표시. 카드 왼쪽의 삼각형을 누르면 자세히 보기·간략히 보기 어느 쪽에서든 곧바로 로고만 남습니다. 로고를 다시 누르면 숨기기 직전의 카드로 돌아갑니다. 원형 보기 전환 버튼 하나로 **자세히 보기 ↔ 간략히 보기**를 전환합니다. 간략히 보기는 목록, 자세히 보기는 카드 모양 아이콘으로 표시하며, 동그라미 안의 `+`는 AI 추가·제거입니다.
-- 작은 잔여량 요약에서 Claude는 주간 잔여량을 크게, 5시간 잔여량을 작은 보조 행으로 표시합니다. 관측 누적치·최근 소비량도 주간 기준입니다. 펼친 카드의 5시간·주간 순서는 유지하며, 각 한도의 값이 없거나 초기화 시각이 지나면 해당 값만 `—`로 표시합니다.
-- 작은 카드의 각 한도 이름 옆에는 시계 아이콘과 리셋까지 남은 시간을 짧게 표시합니다. 마우스를 올리면 PC 현지 시간대의 정확한 리셋 날짜·시각을 확인합니다. 리셋 시각이 없으면 `—`, 시각이 지났으면 `초기화됨`으로 표시하며 다음 조회를 기다립니다.
-- 로고 상태는 실제 창도 48×48 DIP로 작아집니다. 로고를 드래그해 이동하고 클릭하거나 Enter/Space를 누르면 마지막 카드로 돌아옵니다. 마지막 카드의 자세히 보기·간략히 보기 선택은 로고 상태로 종료해도 저장됩니다. Escape도 카드 숨기기·복원에 사용합니다. 카드의 삼각형 버튼은 드래그 영역에서 제외되며, 로고 옆 글자 영역으로 카드를 이동할 수 있습니다. `…`: 연결 설정·화면 모서리 배치·종료.
-- 드래그를 놓으면 현재 모니터의 작업 영역에서 창 중심이 위치한 사분면에 따라 접기 기준점이 자동으로 좌측 상단·우측 상단·좌측 하단·우측 하단으로 바뀝니다. 왼쪽에서는 왼쪽 끝, 오른쪽에서는 오른쪽 끝을 유지하며, 위쪽에서는 위 끝, 아래쪽에서는 아래 끝을 유지합니다. 전환 중에는 기준점이 바뀌지 않습니다. `… → 화면 모서리`의 네 버튼으로 바로 배치할 수도 있습니다. 위치와 기준점을 함께 저장하고, 작업 표시줄을 피하며 현재 모니터 작업 영역 안에서 펼칩니다.
+아래 명령은 모두 저장소 루트 기준입니다.
+
+```powershell
+.\build-widget.ps1 -RestoreUI
+.\run-widget.cmd
+```
+
+스크립트는 `WidgetUI`에서 `npm ci`와 `npm run build`를 실행한 다음 `dotnet publish`로 `Release/AIUsageWidget.exe`를 생성합니다. .NET 런타임을 포함하는 Windows x64 배포본이며 `Release` 전체가 실행에 필요합니다. 이후 빌드에서는 `-RestoreUI`를 생략할 수 있고, `node_modules`가 없으면 자동으로 의존성을 설치합니다.
+
+AI Usage Viewer의 실행 파일은 `Release/AIUsageWidget.exe`입니다. 기존 삼각형 아이콘, 애니메이션과 `%LOCALAPPDATA%\AIUsageWidget`의 계정 저장 구조를 유지합니다.
+
+## 소스 구조
+
+| 경로 | 역할 |
+|---|---|
+| `UsageWidget/App.xaml.cs` | 앱 시작·종료와 단일 실행 제어 |
+| `UsageWidget/MainWindow.xaml.cs` | WPF 호스트, WebView2, 계정 세션, 상태 전달·창 이동·보기 전환 |
+| `UsageWidget/AiAccountProfiles.cs`, `AccountSessions.cs` | 서비스 카탈로그, 공통 계정 목록과 서비스별 세션 어댑터 |
+| `UsageWidget/CodexClient.cs` | 공식 Codex app-server의 계정·로그인·한도 RPC |
+| `UsageWidget/ClaudeAuthClient.cs`, `ClaudeUsageControl.cs` | 공식 Claude Code 인증과 사용량 제어 요청 |
+| `UsageWidget/ClaudeBridge.cs`, `Bridge/claude-statusline.ps1` | Claude 상태줄 설치·복원과 사용량 수신 |
+| `UsageWidget/UsageModels.cs` | 사용량·한도 모델과 서비스 응답 파서 |
+| `UsageWidget/DailyUsageTracker.cs`, `MeasurementPreferences.cs` | 관측 변화 기록, 로컬 집계와 측정 설정 |
+| `UsageWidget/WidgetStorage.cs` | 사용자 데이터 저장과 제한된 오류 로그 |
+| `WidgetUI/src/main.jsx`, `style.css` | React 카드·설정 화면과 애니메이션 |
+| `WidgetUI/src/displayClock.js` | 카드별 수신 경과 시간·리셋 표시 갱신 일정 |
+| `WidgetVerification` | WPF·WebView2 통합 검증과 성능 측정 |
+| `docs/screenshots`, `docs/performance.md` | 검증용 화면 예시와 성능 비교 기록 |
+| `build-widget.ps1`, `run-widget.cmd` | 배포 빌드와 실행 스크립트 |
+
+## UI 개발과 미리보기
+
+```powershell
+Set-Location .\WidgetUI
+npm run dev
+```
+
+개발 서버는 `127.0.0.1`에 바인딩합니다. 출력된 URL에 `?preview=1`을 붙이면 예시 데이터라는 표시가 있는 디자인 미리보기를 볼 수 있습니다. 실제 계정 연결은 데스크톱 앱에서 처리합니다. 예시 값은 데스크톱 앱의 실제 수신값을 대체하지 않습니다.
+
+네이티브 앱은 빌드된 UI를 `https://widget.local/index.html`로 매핑하고 WebView2 메시지로 상태와 사용자 동작을 전달합니다. UI 변경을 데스크톱 앱에 반영하려면 저장소 루트에서 다시 빌드합니다.
+
+## 검증
+
+UI를 빌드한 다음 저장소 루트에서 실행합니다.
+
+```powershell
+node --test .\WidgetUI\src\displayClock.test.js
+dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\widget-verification
+dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\performance-checks --performance-checks-only
+```
+
+단위 테스트는 표시 시각 경계를, 통합 검증은 데이터 파싱·상태줄 복원·계정 격리·관측 집계·보기 전환 등을 확인합니다. 성능 변경 검증은 동일 상태 전송 생략, 새 데이터 전달, 로고 화면의 시계 해제와 복원을 확인합니다. 결과는 지정한 출력 폴더의 `results.json`에 저장합니다. 기본 검증은 예시 데이터와 별도 Claude 설정 파일을 사용합니다.
+
+실제 Codex CLI의 현재 로그인 계정을 조회하는 검증은 별도로 실행합니다.
+
+```powershell
+dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\widget-verification-live --live
+```
+
+CPU·메모리 측정은 다음 명령으로 실행하며 `performance.json`에 결과를 저장합니다.
+
+```powershell
+dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\performance --performance-only
+```
+
+측정 조건과 변경 전후 수치는 [성능 비교 기록](../docs/performance.md)에 있습니다. 고정 예시 데이터의 짧은 측정이므로 실제 계정·네트워크 조회를 포함한 장시간 운용의 보장값으로 사용하지 않습니다.
+
+개발용 저장 위치를 분리하려면 다음처럼 실행합니다.
+
+```powershell
+.\Release\AIUsageWidget.exe --data-dir D:\Temp\AIUsageWidget-Dev
+```
+
+이 옵션은 계정·설정·관측 기록·WebView 프로필의 저장 위치를 바꿉니다. `WidgetStorage.Log`의 오류 로그는 옵션과 관계없이 기본 `%LOCALAPPDATA%\AIUsageWidget`에 기록됩니다.
+
+## 계정 격리와 서비스 연동
+
+첫 계정은 기존 `Accounts/Codex`, `Accounts/Claude`를 유지합니다. 추가 계정은 `Accounts/CodexProfiles/<프로필 ID>`, `Accounts/ClaudeProfiles/<프로필 ID>`로 분리합니다. Codex에는 `CODEX_HOME`, Claude에는 `CLAUDE_CONFIG_DIR`를 전달하며 공식 CLI가 인증 상태를 관리합니다. 기존 CLI 계정 공유는 서비스별 첫 계정 슬롯에서만 허용합니다.
+
+Codex 전용 프로필은 인증 저장소를 파일로 지정합니다. 앱은 기본 `%APPDATA%/npm/node_modules/@openai/codex` 아래의 x64 native 실행 파일, PATH의 `codex.exe`, 기본 npm 설치의 `bin/codex.js` 순서로 찾습니다. JS 진입점을 사용하는 경우 `node.exe`가 필요합니다. 로그인·계정 조회는 `account/login/start`, `account/login/completed`, `account/login/cancel`, `account/logout`, `account/read`, `account/rateLimits/read`를 사용합니다. [공식 app-server 문서](https://learn.chatgpt.com/docs/app-server)를 참고하세요.
+
+Claude는 `%USERPROFILE%/.local/bin/claude.exe`를 먼저 찾고 PATH의 `claude.exe`를 확인합니다. `claude.cmd`나 WSL의 Linux CLI는 이 탐색 경로에 포함되지 않습니다. 전용 프로필에서는 상속된 API 키·다른 공급자 환경변수가 선택한 구독 계정을 덮어쓰지 않도록 제거합니다.
+
+Claude 인증은 공식 CLI의 `auth login --claudeai`, `auth status --json`, `auth logout`에 위임합니다. 구독 한도는 스트림 JSON의 `initialize`, `get_usage` 제어 요청으로 받으며 사용자 메시지·모델 요청·도구 요청을 보내지 않습니다. 공식 TypeScript SDK의 `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET()`에 대응하는 실험 기능입니다. [공식 추가 기록](https://github.com/anthropics/claude-agent-sdk-typescript/releases/tag/v0.3.169)에 따라 이후 CLI 변경 가능성을 고려해야 합니다.
+
+Claude 상태줄 브리지는 한도 사용률·리셋 시각·수신 시각만 추출하고, 자동 조회 실패 시 마지막 수신값을 유지합니다. 계정 이메일은 별도 `usage-account.json`에 저장해 캐시의 계정을 구분합니다. 상태줄 설치 시 전체 설정과 이전 `statusLine`을 백업하며, 해제 시 상태줄만 복원해 이후 변경된 다른 설정을 유지합니다. 기존 상태줄 명령은 Git Bash로 실행해 출력도 보존합니다.
+
+## 갱신과 화면 전환
+
+네이티브 호스트는 2초마다 표시 중인 Claude 계정의 로컬 수신 파일을 확인하고 상태를 집계합니다. 서비스 계정 확인·갱신은 60초 주기로 진행하며, Claude의 실제 자동 사용량 제어 요청은 세션별 5분 간격으로 제한합니다. 수동 새로고침은 이 간격을 기다리지 않고 요청합니다. 계정 조회는 최대 3개까지 동시에 처리합니다.
+
+시간 표시는 App 전체의 매초 렌더링 대신 카드별 표시 시계를 사용합니다. 분 표시·수신 경과 시간·리셋 만료가 바뀌는 시점에 갱신하고 로고만 보기에서는 카드 시계를 해제합니다. 같은 JSON 상태의 반복 전송은 생략하며, 새 수신 시각·계정·설정·화면 전환과 새 `ready` 요청은 계속 전달합니다. 조회·집계와 애니메이션은 유지합니다.
+
+창 드래그는 WebView2의 native 제목줄 영역으로 처리합니다. 삼각형 버튼은 드래그 영역에서 제외하고 글자 영역을 통해 이동합니다. 드래그 종료 시 작업 영역 내 창 중심의 사분면으로 접기 기준 모서리를 정하고, 전환 중에는 기준점을 유지합니다.
+
+### 애니메이션 구현
+
 - 펼치기·접기는 내용 정리(약 0.09초) → 삼각형을 유지하며 실제 창의 폭·높이 변형(약 0.38초) → 새 내용 표시(약 0.13초) 순서입니다. 크기가 바뀔 때 카드 내용이 잘려 보이지 않도록 다음 내용을 숨긴 상태로 미리 측정하고, 창 변형 완료 신호를 받은 후 표시합니다. 선택된 모서리를 유지하고, 전환 중 다시 누르면 현재 크기에서 새 목표로 이어집니다. `… → 부드러운 펼치기·접기`로 끌 수 있고 이 설정도 저장합니다. 요청된 전환 효과는 Windows 애니메이션 옵션과 별도로 기본 활성화합니다.
 - 전환 중 삼각형 세 개로 구성된 로고가 약 0.48초 동안 easeInOut으로 120도만 회전합니다. 접기는 시계 방향, 펼치기는 반시계 방향입니다. 정지 로고는 끝난 각도를 이어받습니다. 회전과 새 카드의 페이드가 끝날 때까지 정지 로고를 숨긴 뒤 페이드 겹침 없이 교체하며, 크기와 위치도 맞춥니다. 펼치기·접기 효과를 끄면 전환 회전도 생략합니다.
 - 창 크기 전환은 WPF 합성 프레임에 맞춰 0.38초 동안 cosine easeInOut으로 진행합니다. 너비·높이·위치를 한 번의 네이티브 호출로 바꾸고, 같은 합성 프레임과 같은 픽셀 크기는 중복 적용하지 않습니다. 카드가 숨겨진 전환 구간에는 WebView 크기를 고정해 웹 화면의 반복 재배치를 피하고, 최종 크기로 맞춘 뒤 내용을 표시합니다. 일반 설정창 크기 변경과 드래그 중에는 정상적인 화면 크기 갱신을 유지합니다.
 - 선택한 AI가 모두 연결된 동안에만 삼각형 세 조각의 밝기가 3초 주기로 부드럽게 오르내리며, 1초씩 위상을 나눠 느린 물결처럼 흐릅니다. 연결이 끊기거나 조회 오류가 있는 AI가 하나라도 있으면 로고가 회색으로 바뀌고 밝기 효과가 멈춥니다. 빈 대시보드도 회색입니다. 숨긴 AI는 연결 판단에 포함하지 않습니다. 연결된 상태의 갱신 중에는 물결이 약 0.85초 주기로 빨라지고 로고가 약 1.6초에 한 바퀴씩 easeInOut으로 회전합니다. 연결 확인·로그인 및 펼치기·접기 회전은 회색에서도 유지합니다. 밝기 효과는 추가 사용량 조회를 발생시키지 않으며, Windows 동작 줄이기 설정에서는 생략합니다.
-- 위치·고정·접기 상태를 저장합니다. 종료는 `… → 위젯 종료`입니다.
-- 새로고침 버튼 또는 F5로 선택한 AI를 다시 조회합니다. Codex 자동 조회 간격은 60초, Claude는 5분입니다. Claude 연결 직후와 앱 재실행 때도 조회합니다.
-- 조회 중 기존 값을 유지하며 삼각형 로더가 움직입니다. 숫자·막대는 spring으로 전환합니다.
 - 잔여량이 감소하면 밝은 잔상이 약 0.65초 유지된 뒤 1.25초 동안 따라 줄어드는 지연 HP 효과를 표시합니다. 한도 초기화와 계정·플랜 변경은 감소 애니메이션의 기준을 새로 잡습니다.
-- 각 한도에 `09:30 관측 −3%p`를 표시합니다. 위젯이 오늘 처음 받은 값부터 관측한 소비량이며 **하루 전체 사용량이나 토큰 수가 아닙니다**. 5시간 한도와 주간 한도는 각각 다른 기준으로 계산합니다. 표시 시각은 마지막으로 실제 사용량 데이터를 수신한 PC 현지 시각이며 24시간 `HH:mm` 형식으로 표시합니다. 자정은 `00:00`입니다. 관측 시작 시각·누적치 집계 시각·집계에 사용된 수신 시각은 마우스를 올리면 따로 확인할 수 있습니다. 누적치의 집계 주기를 기다리는 동안에도 새 사용량을 수신하면 표시 시각은 갱신되며, 캐시만 다시 표시할 때는 원본 시각을 유지합니다.
-- 시간이 붙은 관측 표시를 누르거나 `… → 사용량 측정 설정`에서 **집계 주기**와 **비교 구간**을 각각 설정합니다. 집계 주기는 슬라이더로 `1m~3h` 범위에서 1분 단위로 조절하며 `1m · 5m · 15m · 30m · 1h · 3h` 빠른 선택 버튼도 제공합니다. 슬라이더는 놓거나 키보드 조작을 마치면 저장합니다. 비교 구간은 `30m · 1h · 3h · 6h · 12h · 1d`를 유지합니다. 기본값은 각각 30분이고, 이전 버전의 3시간보다 긴 집계 주기는 3시간으로 보정하면서 비교 구간을 보존합니다. 집계 주기는 오늘 누적치와 최근 소비량을 표시 갱신하는 간격이고, 비교 구간은 마지막 집계 시각부터 얼마나 이전까지의 관측 소비량을 더할지 정합니다.
-- 집계는 수신한 기록을 로컬에서 합산합니다. Codex의 60초 조회와 Claude 상태줄 수신 주기는 바꾸지 않으며, AI 모델 요청을 추가하지 않습니다. 새 수신값이 없으면 집계 시각을 갱신하지 않습니다. 자정을 지나도 집계 시간표는 유지하고, 오늘 값은 새 날짜의 첫 집계 전까지 `집계 대기`로 표시합니다. 비교 구간을 바꾸면 마지막 집계 시각을 기준으로 다시 계산합니다.
-- 오늘 관측한 현재 한도의 소비 구간은 막대에 옅은 색으로 남습니다. 한도 초기화 시 구간은 비우고 오늘 누적치는 유지합니다. PC 현지 자정에는 새 기준을 잡고, 재시작 시 같은 날의 기록을 복원합니다. 위젯 종료·미수신 중의 초기화나 첫 관측 전 사용량은 복원할 수 없습니다.
-- 전체 카드와 요약 화면에 `Codex · Pro x5`처럼 계정 플랜을 연한 색으로 표시합니다. 연결 정보에 플랜이 없으면 생략하고, Claude의 배수 정보가 없으면 임의로 추가하지 않습니다.
-- 한도가 초기화된 경우 다음 실제 값을 받을 때까지 `—`로 표시합니다. 값이 없는 계정을 100%로 표시하지 않습니다.
-- 5분 이상 지난 값은 `이전 수신값`으로 표시합니다. Claude 시각은 마지막 상태줄 데이터 **수신** 시각입니다.
-- Windows에서 동작 줄이기를 설정한 경우 로더 회전과 숫자·막대 효과를 줄입니다. 펼치기·접기는 위젯 자체의 별도 설정을 따릅니다.
 
-## AI 계정 추가
+## 삼각형 아이콘
 
-1. 상단 **+** 또는 계정 연결 화면의 **AI 계정 추가**를 누릅니다.
-2. **Codex·Claude 중 원하는 AI**를 선택합니다. 같은 AI를 여러 번 선택해도 됩니다.
-3. 계정 연결 화면에서 해당 카드의 로그인 버튼을 눌러 각 계정을 직접 로그인합니다.
-
-예를 들어 Codex, Claude, Codex 2, Claude 2를 함께 표시할 수 있습니다. 계정마다 잔여량·리셋 시간·관측 기록·로그아웃을 독립적으로 관리하며, 선택 목록과 순서를 다시 실행해도 유지합니다. 카드 제거는 숨기기이며 로그인은 유지합니다. 숨긴 계정은 **다시 표시**로 복원합니다.
-
-현재 자동 연결을 지원하는 AI는 Codex와 Claude입니다.
-
-**계정 별명**: `… → 계정 로그인 · 연결 관리`에서 각 계정의 **별명**을 입력하고 **저장**을 누릅니다. 최대 24자이며 큰 카드·작은 카드·계정 목록에 `Codex · 개인용`, `Claude · 업무용`처럼 AI 이름 옆에 보조 색으로 표시됩니다. AI 이름은 유지하고 긴 별명만 줄여 표시하며, 전체 이름은 마우스를 올리면 확인할 수 있습니다. 비우고 저장하면 Codex, Claude, Codex 2 등의 기본 이름으로 돌아갑니다. 별명은 재실행 후에도 유지되고 로그인·사용량 기록은 그대로입니다. 카드 이름에 마우스를 올리면 기본 AI 계정 이름과 이메일을 확인할 수 있습니다.
-
-## Codex 연결
-
-Codex 카드마다 **ChatGPT로 로그인**을 눌러 서로 다른 계정을 연결합니다. 계정 이름은 Codex, Codex 2, Codex 3 순서로 표시되며, 자세히 보기와 간략히 보기 모두 여러 계정을 지원합니다.
-
-계정 하나의 로그아웃이나 조회 오류는 다른 계정에 영향을 주지 않습니다. 추가한 계정, 표시 순서와 로그인 설정은 앱을 다시 실행해도 유지됩니다. 카드 제거는 해당 카드를 숨기는 동작이며 로그인은 유지합니다.
-
-`… → 계정 로그인 · 연결 관리 → ChatGPT로 로그인`을 누르면 공식 브라우저 OAuth 화면에서 계정을 선택합니다. 계정 이메일, 계정 변경, 로그아웃, 로그인 취소를 지원합니다.
-
-로그인과 구독 한도 조회는 설치된 Codex CLI의 `codex app-server`에 위임합니다. `account/login/start`, `account/login/completed`, `account/login/cancel`, `account/logout`, `account/read`, `account/rateLimits/read`를 사용합니다. 모델 요청이나 대화 생성은 하지 않습니다. CLI가 없는 경우 `npm install -g @openai/codex`로 설치합니다.
-
-첫 계정의 전용 로그인은 기존 `%LOCALAPPDATA%/AIUsageWidget/Accounts/Codex`를 유지하며, 추가 계정은 `%LOCALAPPDATA%/AIUsageWidget/Accounts/CodexProfiles/<계정 ID>`를 각각의 `CODEX_HOME`으로 사용합니다. 공식 CLI의 인증 저장소도 계정별 파일로 분리합니다. 공식 CLI가 이 폴더에 인증 상태를 보관하고 갱신합니다. 기존 CLI 계정을 쓰려면 첫 Codex 카드에서 **기존 CLI 계정 사용**을 직접 선택합니다. 추가 계정은 위젯 전용 로그인으로 연결합니다. 공유 계정의 연결을 해제해도 기존 CLI 자체는 로그아웃하지 않습니다. 계정이 소스에 하드코딩되어 있지 않습니다.
-
-공식 문서: https://learn.chatgpt.com/docs/app-server
-
-현재는 기본 npm 설치 경로의 x64 native 실행 파일, PATH의 codex.exe, 기본 npm 설치의 JS 진입점을 찾습니다. API 키 계정과 잔여 비율을 제공하지 않는 플랜은 해당 제한을 안내합니다.
-
-## Claude 연결
-
-`… → 계정 로그인 · 연결 관리 → 공식 Claude Code로 로그인`을 누르면 **공식 Claude Code 실행 파일의 `claude auth login --claudeai`**가 브라우저 OAuth를 진행합니다. 공식 CLI 창에서 로그인과 필요한 코드 입력을 사용자가 직접 완료합니다. 로그인을 앱이 대신 승인하지 않습니다.
-
-첫 Claude 계정은 기존 `%LOCALAPPDATA%/AIUsageWidget/Accounts/Claude`를 유지하고, 추가 계정은 `%LOCALAPPDATA%/AIUsageWidget/Accounts/ClaudeProfiles/<계정 ID>`를 각각의 `CLAUDE_CONFIG_DIR`로 사용합니다. 로그인, 상태줄 설정, 사용량 수신 파일과 백업을 계정마다 분리합니다. `claude auth status --json`으로 계정 이메일·구독 로그인 여부를 확인하고, 전용 계정만 `claude auth logout`으로 로그아웃합니다. 위젯이 Claude OAuth 토큰을 직접 읽거나 저장하거나 비공개 API로 전송하지 않습니다. 독립된 Claude.ai OAuth 클라이언트로 위장하지 않습니다.
-
-로그인 뒤 공식 Claude Code의 SDK 제어 요청 `initialize`와 `get_usage`로 구독 사용량을 자동 조회합니다. 실제 모델 메시지·도구 요청을 보내지 않고 CLI가 인증과 토큰 갱신을 처리합니다. 연결 직후와 이후 5분마다 조회하며, 새로고침으로 수동 갱신할 수 있습니다. 위젯은 OAuth 토큰을 읽거나 비공개 HTTP API를 직접 호출하지 않습니다.
-
-이 기능은 공식 TypeScript SDK의 `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET()`에 해당하는 **실험 기능**입니다. 최신 Claude Code가 필요하고 이후 버전에서 형식이 바뀔 수 있습니다. 지원하지 않는 CLI나 조회 실패 시 기존 상태줄 수신값을 유지하며, 수신값도 없으면 업데이트·로그인 안내를 표시합니다. 공식 추가 기록: https://github.com/anthropics/claude-agent-sdk-typescript/releases/tag/v0.3.169
-
-**이 계정으로 Claude Code 열기**에서 작업 폴더를 선택하면 같은 전용 계정으로 Claude Code가 열립니다. 해당 세션의 공식 `statusLine` 데이터 수신도 유지합니다.
-
-첫 Claude 카드에서 **기존 CLI 계정 사용**을 직접 선택하면 기존 Claude Code의 계정을 공유하며, 해당 상태줄 설정을 백업·연결합니다. 기존 계정의 연결 해제는 상태줄을 복원하지만 CLI 자체는 로그아웃하지 않습니다. 계정 전환 때 이전 사용량 캐시를 비워 다른 계정의 값이 남지 않게 합니다.
-
-이전 버전의 전역 상태줄을 복원하는 호환 옵션은 `AIUsageWidget.exe --disconnect-claude`입니다. 새로운 연결은 UI에서 직접 선택합니다.
-
-- 전용 계정은 전용 폴더의 `settings.json`만 사용합니다. 기존 CLI 연결을 직접 선택한 경우에만 `~/.claude/settings.json`을 변경하며, 기존 상태줄과 전체 설정을 백업합니다.
-- 기존 상태줄 명령이 있으면 Git Bash로 원래 입력을 전달하고 출력도 보존합니다.
-- `연결 해제`는 상태줄만 복원하며, 이후 변경된 다른 설정은 유지합니다.
-- 구독 계정 연결 후 모델 응답을 기다리지 않고 사용률과 초기화 시각을 조회합니다. 같은 계정의 앱·웹·다른 PC 사용도 다음 조회 때 반영됩니다. 자동 조회가 지원되지 않는 환경에서는 Claude Code 응답 이후 상태줄 데이터를 받습니다.
-- Claude Code의 대화 창은 닫아도 자동 조회가 동작합니다. 공식 CLI 실행 파일은 설치되어 있어야 합니다. 네트워크 오류나 이전 CLI에서는 마지막 수신값과 시각을 유지합니다.
-- API 비용, 컨텍스트 사용률과 구독 잔여량을 섞지 않습니다.
-
-공식 문서: https://code.claude.com/docs/en/statusline
-
-로그인·계정 격리: https://code.claude.com/docs/en/cli-reference, https://code.claude.com/docs/en/settings
-
-사용량 파일에는 두 한도와 수신 시각만 저장합니다. 대화 내용, 세션 경로, 인증 토큰은 저장하지 않습니다. 위젯이 Claude 자격증명을 직접 읽거나 비공개 사용량 API를 호출하지 않습니다.
-
-## 저장 위치
-
-`%LOCALAPPDATA%/AIUsageWidget/`: WebView 프로필, 창 위치, Claude 사용량 수신 파일, 상태줄 복원 정보와 백업, 제한된 오류 로그.
-
-`daily-usage.json`에는 서비스별 현재 날짜, 계정·플랜의 해시, 한도별 관측 기준과 누적 변화량, 마지막 집계 상태와 최대 48시간의 관측 변화 기록을 저장합니다. 이메일·인증 토큰·대화 내용은 이 기록에 저장하지 않습니다.
-
-`measurement.json`에는 집계 주기와 비교 구간을 분 단위로 각각 저장합니다. 재시작해도 설정과 집계 시간표를 복원합니다.
-
-`account-profiles.json`에는 모든 AI 계정 카드의 ID·서비스 종류·기본 이름·별명·연결 사용 여부를 저장하며, 이메일이나 인증 토큰은 저장하지 않습니다. 이전 Codex 전용 목록과 Claude 연결 설정은 공통 계정 목록으로 자동 이관하며, 기존 로그인 폴더와 관측 기록은 유지합니다. `codex-accounts.json`은 이전 버전과의 메타데이터 호환을 위해 함께 유지합니다.
-
-`dashboard.json`에는 선택한 계정 카드의 ID와 순서만 저장합니다. 빈 목록을 저장하면 연결된 계정이 있어도 대시보드는 빈 상태를 유지합니다. 표시하지 않는 서비스는 계정·사용량을 주기적으로 조회하지 않습니다.
-
-AI를 추가하면 로그인 전에도 선택을 즉시 저장합니다. 다음 실행에서 같은 목록과 순서를 복원하며, 실행 파일 폴더를 옮기거나 새 배포본으로 교체해도 같은 Windows 사용자의 환경을 유지합니다. 저장 위치는 실행 파일 옆이 아닌 사용자별 로컬 앱 데이터입니다. 직접 제거한 카드는 다시 나타나지 않고, 카드를 제거해도 계정 연결은 유지합니다.
-
-샌드박스 개발·검증은 `AIUsageWidget.exe --data-dir <절대 경로>`로 저장 위치를 바꿀 수 있습니다.
-
-## 빌드·검증
+실행 파일·작업 표시줄·시작 화면에는 기존 삼각형 세 개 로고를 사용합니다. 원본은 [usage-widget.svg](Assets/usage-widget.svg)이며 저장소 루트에서의 경로는 `UsageWidget/Assets/usage-widget.svg`입니다. SVG를 변경한 경우 루트에서 다음 명령으로 ICO와 시작 화면 PNG를 다시 생성합니다.
 
 ```powershell
-.\build-widget.ps1 -RestoreUI
-dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\widget-verification
+powershell.exe -NoProfile -STA -File .\UsageWidget\Tools\generate-icon.ps1
 ```
 
-실제 Codex 계정 조회까지 검증하려면 마지막에 `--live`를 추가합니다. 검증에서는 별도 Claude 설정 파일을 사용하며 사용자 설정을 바꾸지 않습니다. 모든 UI 스크린샷의 예시 값은 검증용이며, 앱은 실제 수신값만 표시합니다.
+Windows 아이콘은 16~256px의 10개 해상도를 포함하며, 벡터 원본을 각 크기로 렌더링합니다.
 
-React 개발 서버: `WidgetUI`에서 `npm run dev`. 브라우저에서 `?preview=1`을 붙이면 **예시 데이터라는 표시가 있는 디자인 미리보기**를 볼 수 있습니다. 데스크톱 앱의 데이터 대체 기능으로 사용하지 않습니다.
+## 서비스 확장
 
-공개 배포에는 위젯의 publish 폴더만 포함합니다. 프로젝트 설정으로 `.pdb` 복사를 막고, 같은 폴더에 이전 빌드의 `.pdb`가 남아 있으면 publish 완료 때 제거합니다. 컴파일러의 소스 경로도 고정된 가상 경로로 매핑합니다. 로컬 개발용 심볼은 `bin`에 유지하며 사용자 프로필·계정 파일은 배포하지 않습니다.
+계정 목록, 카드 추가·숨김, 로그인·로그아웃과 관측 집계는 서비스 공통으로 처리합니다. 새 AI를 지원하려면 다음 부분을 연결합니다.
 
-## 소스와 실행 파일 함께 공유
+1. `AiAccountProfiles.cs`의 `AiServices.Catalog`에 서비스 정보를 추가합니다.
+2. `AccountSessions.cs`의 `IAccountSession` 어댑터로 공식 인증과 사용량 조회를 구현합니다.
+3. `MainWindow.xaml.cs`의 `CreateSession`에 세션 생성을 연결합니다.
+4. 서비스별 프로필 경로와 `UsageModels.cs`의 응답 파싱, UI의 한도 표시를 확인합니다.
+5. 계정 격리·없는 한도·조회 실패·로그아웃·표시 복원 등을 통합 검증에 포함합니다.
 
-- UsageWidget, WidgetUI, WidgetVerification 폴더: 작업 소스와 검증 코드.
-- Release 폴더: 런타임을 포함한 실행용 EXE, DLL, 웹 파일. 이 폴더도 Git에 함께 추가합니다.
-- run-widget.cmd: 저장소 루트에서 실행하는 바로가기 스크립트.
-- build-widget.ps1: 소스를 수정한 뒤 Release 폴더를 다시 빌드합니다.
-- artifacts, bin, obj, node_modules, WidgetUI/dist는 Git에서 제외합니다.
-- 개인 계정·사용량 기록은 각 PC의 로컬 사용자 폴더에 저장하며 실행 폴더에 포함하지 않습니다.
+새 서비스를 연결할 때도 사용자 계정의 인증 정보와 다른 계정의 캐시가 섞이지 않도록 합니다.
 
-## 서비스 확장 구조
+## 배포와 소스 공유
 
-계정 목록, 카드 추가·숨김, 로그인·로그아웃 명령과 사용량 집계는 서비스 공통으로 처리합니다. 새 AI를 지원하려면 UsageWidget/AiAccountProfiles.cs의 서비스 카탈로그와 UsageWidget/AccountSessions.cs의 IAccountSession 어댑터를 추가하고 MainWindow의 세션 생성에 연결합니다. 각 어댑터가 해당 서비스의 공식 인증과 사용량 조회를 담당합니다.
+- `UsageWidget`, `WidgetUI`, `WidgetVerification`, `docs`는 소스·검증·문서입니다.
+- `Release`는 런타임을 포함한 실행용 EXE·DLL·웹 파일이며 이 저장소에서는 Git에 함께 추가합니다.
+- 소스를 수정해 실행본을 갱신할 때는 `build-widget.ps1`을 사용합니다.
+- `artifacts`, `bin`, `obj`, `node_modules`, `WidgetUI/dist`는 Git에서 제외합니다.
+- 공개 실행 배포에는 publish 결과인 `Release` 폴더 전체를 포함합니다. 사용자 프로필·계정 파일·관측 기록은 포함하지 않습니다.
+
+프로젝트는 `.pdb`의 publish 복사를 막고, publish 완료 시 이전 빌드에서 남은 `.pdb`도 제거합니다. 컴파일러 소스 경로는 가상 경로로 매핑하며 로컬 개발용 심볼은 `bin`에 유지합니다.
