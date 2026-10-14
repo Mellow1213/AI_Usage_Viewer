@@ -6,7 +6,7 @@ namespace UsageWidget;
 
 // Delegates sign-in to the unmodified official Claude Code executable.
 // This app never reads, copies or sends Claude OAuth tokens.
-internal sealed class ClaudeAuthClient(string? profileHome = null) : IDisposable
+internal sealed class ClaudeAuthClient(string? profileHome = null, Func<string[], ProcessStartInfo>? processFactory = null) : IDisposable
 {
     private Process? _loginProcess;
     internal string Source => profileHome is null ? "system" : "widget";
@@ -25,8 +25,10 @@ internal sealed class ClaudeAuthClient(string? profileHome = null) : IDisposable
 
     internal ProcessStartInfo StartInfo(params string[] arguments)
     {
-        var info = new ProcessStartInfo(FindExecutable()) { UseShellExecute = false, WorkingDirectory = AppContext.BaseDirectory };
-        foreach (var argument in arguments) info.ArgumentList.Add(argument);
+        var info = processFactory?.Invoke(arguments) ?? new ProcessStartInfo(FindExecutable());
+        info.UseShellExecute = false;
+        info.WorkingDirectory = AppContext.BaseDirectory;
+        if (processFactory is null) foreach (var argument in arguments) info.ArgumentList.Add(argument);
         if (profileHome is not null)
         {
             Directory.CreateDirectory(profileHome);
@@ -60,7 +62,7 @@ internal sealed class ClaudeAuthClient(string? profileHome = null) : IDisposable
         var info = StartInfo("auth", "login", "--claudeai");
         // The official CLI owns the browser flow and any fallback code-entry prompt.
         // A visible console is intentional: the user must complete authentication themselves.
-        info.CreateNoWindow = false;
+        info.CreateNoWindow = processFactory is not null;
         _loginProcess = Process.Start(info) ?? throw new IOException("Claude login did not start.");
         try
         {

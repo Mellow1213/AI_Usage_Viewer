@@ -17,17 +17,15 @@ public partial class MainWindow : Window
     private readonly string _widgetUrl;
     private readonly string _dataDirectory;
     private readonly DailyUsageTracker _daily;
-    private ClaudeBridge _claude;
-    private CodexAccountPreferences _codexProfiles;
-    private readonly Dictionary<string, CodexSession> _codexSessions;
+    private AiAccountPreferences _accountProfiles;
+    private readonly Dictionary<string, IAccountSession> _sessions;
     private readonly Func<CodexProfile, CodexClient>? _codexFactory;
+    private readonly Func<AiAccountProfile, ClaudeAuthClient>? _claudeFactory;
+    private readonly string? _claudeSettingsOverride;
     private readonly Action<string> _openCodexLogin;
-    private ClaudeAuthClient _claudeAuth;
     private ConnectionPreferences _connections;
     private DashboardPreferences _dashboard;
     private MeasurementPreferences _measurement;
-    private AccountConnection _codexAccount { get => _codexSessions["codex"].Account; set => _codexSessions["codex"].Account = value; }
-    private AccountConnection _claudeAccount = new("claude", "widget", "disconnected");
     private CancellationTokenSource? _loginCancellation;
     private string? _loginProvider;
     private string? _codexLoginUrl;
@@ -35,10 +33,7 @@ public partial class MainWindow : Window
     private readonly CancellationTokenSource _lifetime = new();
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly bool _testMode;
-    private ProviderUsage _codexUsage { get => _codexSessions["codex"].Usage; set => _codexSessions["codex"].Usage = value; }
-    private ProviderUsage _claudeUsage = new("claude", "loading", "연결 상태를 확인하고 있습니다.", []);
-    private DateTimeOffset _lastCodexAttempt;
-    private DateTimeOffset _lastClaudeAttempt;
+    private DateTimeOffset _lastRefreshAttempt;
     private bool _busy;
     private bool _ready;
     private WidgetViewMode _viewMode;
@@ -69,30 +64,30 @@ public partial class MainWindow : Window
     private readonly HashSet<ulong> _blockedNavigations = [];
     internal CoreWebView2? WebView => Browser.CoreWebView2;
     internal bool Ready => _ready;
-    internal ClaudeBridge Claude => _claude;
-    internal ProviderUsage CodexUsage => _codexUsage;
+    internal ClaudeBridge Claude => ((ClaudeSession)_sessions["claude"]).Bridge;
+    internal ProviderUsage CodexUsage => _sessions["codex"].Usage;
     internal WidgetViewMode ViewMode => _viewMode;
     internal WidgetAnchorCorner AnchorCorner => _anchorCorner;
     internal string WidgetAddress => _widgetUrl;
 
     public MainWindow() : this(GetDataDirectory()) { }
-    internal MainWindow(string dataDirectory, bool testMode = false, string? claudeSettings = null, Func<CodexProfile, CodexClient>? codexFactory = null, Action<string>? openCodexLogin = null)
+    internal MainWindow(string dataDirectory, bool testMode = false, string? claudeSettings = null, Func<CodexProfile, CodexClient>? codexFactory = null, Action<string>? openCodexLogin = null, Func<AiAccountProfile, ClaudeAuthClient>? claudeFactory = null)
     {
         InitializeComponent();
         _dataDirectory = dataDirectory;
         _daily = new(dataDirectory);
         _testMode = testMode;
         _codexFactory = codexFactory;
+        _claudeFactory = claudeFactory;
+        _claudeSettingsOverride = claudeSettings;
         _openCodexLogin = openCodexLogin ?? AccountProfiles.OpenCodexLogin;
         // A new UI build must not reuse a cached index page from an older release.
         _widgetUrl = WidgetUrl + "?v=" + File.GetLastWriteTimeUtc(Path.Combine(AppContext.BaseDirectory, "Web", "index.html")).Ticks;
         _connections = AccountProfiles.ReadPreferences(dataDirectory);
-        _codexProfiles = CodexAccountPreferences.Read(dataDirectory, _connections);
-        _codexSessions = _codexProfiles.Profiles.ToDictionary(profile => profile.Id, profile => new CodexSession(dataDirectory, profile, _codexFactory));
+        _accountProfiles = AiAccountPreferences.Read(dataDirectory, _connections);
+        _sessions = _accountProfiles.Profiles.ToDictionary(profile => profile.Id, CreateSession);
         _dashboard = DashboardPreferences.Read(dataDirectory, _connections);
         _measurement = MeasurementPreferences.Read(dataDirectory);
-        _claudeAuth = new(_connections.UseSystemClaude ? null : AccountProfiles.ClaudeHome(dataDirectory));
-        _claude = claudeSettings is not null ? new(dataDirectory, claudeSettings) : CreateClaudeBridge(_connections.UseSystemClaude);
         Browser.DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 17, 19, 22);
         SourceInitialized += (_, _) =>
         {
@@ -106,9 +101,11 @@ public partial class MainWindow : Window
         _timer.Tick += async (_, _) =>
         {
             if (_closed || !_ready) return;
-            if (!AuthBusy && _dashboard.ProviderIds.Contains("claude")) _claudeUsage = _claudeAccount.Status == "connected" ? ReadClaudeSnapshot() : NotConnected("claude");
+            if (!AuthBusy && !_busy)
+                foreach (var session in _sessions.Values.OfType<ClaudeSession>().Where(s => _dashboard.ProviderIds.Contains(s.Profile.Id)))
+                    session.Usage = session.Account.Status == "connected" ? session.ReadSnapshot() with { Id = session.Profile.Id } : NotConnected(session.Profile.Id);
             Publish();
-            if (!_testMode && _dashboard.ProviderIds.Length > 0 && !_busy && !AuthBusy && DateTimeOffset.UtcNow - _lastCodexAttempt >= TimeSpan.FromSeconds(60)) await RefreshAsync();
+            if (!_testMode && _dashboard.ProviderIds.Length > 0 && !_busy && !AuthBusy && DateTimeOffset.UtcNow - _lastRefreshAttempt >= TimeSpan.FromSeconds(60)) await RefreshAsync();
         };
         Closing += (_, _) =>
         {
@@ -116,8 +113,7 @@ public partial class MainWindow : Window
             StopResize();
             _timer.Stop();
             _lifetime.Cancel();
-            foreach (var session in _codexSessions.Values) session.Dispose();
-            _claudeAuth.Dispose();
+            foreach (var session in _sessions.Values) session.Dispose();
             SavePosition();
             Browser.Dispose();
         };
@@ -195,8 +191,7 @@ public partial class MainWindow : Window
                     _ready = true;
                     Startup.Visibility = Visibility.Collapsed;
                     Browser.Visibility = Visibility.Visible;
-                    _codexUsage = NotConnected("codex");
-                    _claudeUsage = NotConnected("claude");
+                    foreach (var session in _sessions.Values) session.Usage = NotConnected(session.Profile.Id);
                     Publish();
                     _timer.Start();
                     if (!_testMode && _dashboard.ProviderIds.Length > 0) await RefreshAsync();
@@ -219,11 +214,16 @@ public partial class MainWindow : Window
                     if (root.TryGetProperty("provider", out var added) && added.ValueKind == JsonValueKind.String)
                     {
                         var id = added.GetString()!;
-                        if (id == "codex" && _dashboard.ProviderIds.Contains("codex")) await AddCodexAccountAsync();
+                        if (AiServices.Catalog.Any(service => service.Id == id) && (_dashboard.ProviderIds.Contains(id)
+                            || _accountProfiles.Profiles.Any(profile => profile.Service == id && (profile.Enabled || profile.Id != id)))) await AddAccountAsync(id);
                         else await SetProviderVisibilityAsync(id, true);
                     }
                     break;
                 case "addCodexAccount": await AddCodexAccountAsync(); break;
+                case "addAccount":
+                    if (root.TryGetProperty("service", out var serviceValue) && serviceValue.ValueKind == JsonValueKind.String)
+                        await AddAccountAsync(serviceValue.GetString()!);
+                    break;
                 case "showProvider":
                     if (root.TryGetProperty("provider", out var shown) && shown.ValueKind == JsonValueKind.String)
                         await SetProviderVisibilityAsync(shown.GetString()!, true);
@@ -287,25 +287,29 @@ public partial class MainWindow : Window
                 case "disconnectClaude":
                     await DisconnectAsync("claude");
                     break;
-                case "loginCodex": await LoginAsync(CodexTarget(root)); break;
-                case "loginClaude": await LoginAsync("claude"); break;
-                case "useExistingCodex": await SelectExistingAsync(CodexTarget(root)); break;
-                case "useExistingClaude": await SelectExistingAsync("claude"); break;
-                case "logoutCodex": await DisconnectAsync(CodexTarget(root)); break;
-                case "logoutClaude": await DisconnectAsync("claude"); break;
+                case "loginCodex": await LoginAsync(AccountTarget(root, "codex")); break;
+                case "loginClaude": await LoginAsync(AccountTarget(root, "claude")); break;
+                case "loginAccount": await LoginAsync(AccountTarget(root)); break;
+                case "useExistingCodex": await SelectExistingAsync(AccountTarget(root, "codex")); break;
+                case "useExistingClaude": await SelectExistingAsync(AccountTarget(root, "claude")); break;
+                case "useExistingAccount": await SelectExistingAsync(AccountTarget(root)); break;
+                case "logoutCodex": await DisconnectAsync(AccountTarget(root, "codex")); break;
+                case "logoutClaude": await DisconnectAsync(AccountTarget(root, "claude")); break;
+                case "logoutAccount": await DisconnectAsync(AccountTarget(root)); break;
                 case "cancelLogin": _loginCancellation?.Cancel(); break;
                 case "reopenLogin": if (_codexLoginUrl is not null) _openCodexLogin(_codexLoginUrl); break;
                 case "launchClaudeCode":
-                    if (_claudeAccount.Status != "connected") throw new InvalidOperationException("Claude is not connected.");
+                    var targetClaude = (ClaudeSession)_sessions[AccountTarget(root, "claude")];
+                    if (targetClaude.Account.Status != "connected") throw new InvalidOperationException("Claude is not connected.");
                     var folder = new Microsoft.Win32.OpenFolderDialog { Title = "이 계정으로 작업할 프로젝트 폴더 선택" };
-                    if (folder.ShowDialog(this) == true) _claudeAuth.LaunchCode(folder.FolderName);
+                    if (folder.ShowDialog(this) == true) targetClaude.Client.LaunchCode(folder.FolderName);
                     break;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or TimeoutException)
         {
             WidgetStorage.Log("Widget action failed", ex);
-            _notice = "설정을 적용하지 못했습니다. 파일 권한이나 Claude 설정 형식을 확인해주세요.";
+            _notice = "설정을 적용하지 못했습니다. 파일 권한과 계정 연결 상태를 확인해주세요.";
             Publish();
         }
     }
@@ -313,242 +317,123 @@ public partial class MainWindow : Window
     internal async Task RefreshAsync(bool forceClaude = false)
     {
         if (_busy || _closed || AuthBusy) return;
-        _busy = true;
-        _lastCodexAttempt = DateTimeOffset.UtcNow;
-        Publish();
+        _busy = true; _lastRefreshAttempt = DateTimeOffset.UtcNow; Publish();
         try
         {
-            await ReadAccountsAsync();
-            // Limit concurrent CLI readers, while one failed account cannot block another card.
             using var readers = new SemaphoreSlim(3);
-            var codexTasks = _codexSessions.Values.Where(session => _dashboard.ProviderIds.Contains(session.Profile.Id))
+            var tasks = _sessions.Values.Where(session => _dashboard.ProviderIds.Contains(session.Profile.Id))
                 .Select(async session =>
                 {
                     await readers.WaitAsync(_lifetime.Token);
-                    try { await RefreshCodexAsync(session); }
+                    try { await RefreshAccountAsync(session, forceClaude); }
                     finally { readers.Release(); }
                 }).ToArray();
-            var claudeTask = _dashboard.ProviderIds.Contains("claude") && _claudeAccount.Status == "connected"
-                ? ReadClaudeUsageAsync(forceClaude) : Task.FromResult(NotConnected("claude"));
-            await Task.WhenAll(codexTasks.Append(claudeTask));
-            _claudeUsage = await claudeTask;
+            await Task.WhenAll(tasks);
         }
-        catch (OperationCanceledException) when (_closed) { return; }
-        catch (Exception ex)
-        {
-            WidgetStorage.Log("Usage refresh failed", ex);
-            _notice = "사용량 갱신을 완료하지 못했습니다. 연결 상태를 확인해주세요.";
-        }
-        finally
-        {
-            _busy = false;
-            if (!_closed) Publish();
-        }
+        catch (OperationCanceledException) when (_closed) { }
+        finally { _busy = false; if (!_closed) Publish(); }
     }
 
-    private ClaudeBridge CreateClaudeBridge(bool system) => system
-        ? new(Path.Combine(_dataDirectory, "SystemClaudeBridge"))
-        : new(Path.Combine(AccountProfiles.ClaudeHome(_dataDirectory), "UsageBridge"), Path.Combine(AccountProfiles.ClaudeHome(_dataDirectory), "settings.json"));
-
-    private ProviderUsage ReadClaudeSnapshot()
-    {
-        var snapshot = _claude.Read();
-        // Retain a useful query error while the fallback has no data yet.
-        return snapshot.Status != "ready" && _claudeUsage.Status == "error" ? _claudeUsage : snapshot;
-    }
-
-    private async Task<ProviderUsage> ReadClaudeUsageAsync(bool force = false)
-    {
-        if (_testMode || !force && DateTimeOffset.UtcNow - _lastClaudeAttempt < TimeSpan.FromMinutes(5)) return ReadClaudeSnapshot();
-        _lastClaudeAttempt = DateTimeOffset.UtcNow;
-        try
-        {
-            var usage = await _claudeAuth.ReadUsageAsync(_lifetime.Token);
-            _claude.SaveUsage(usage);
-            return usage;
-        }
-        catch (OperationCanceledException) when (_closed) { throw; }
-        catch (Exception ex)
-        {
-            WidgetStorage.Log("Claude usage query failed", ex);
-            var cached = _claude.Read();
-            // Older CLIs can still supply documented statusLine snapshots.
-            return cached.Status == "ready" ? cached : new("claude", "error", "자동 조회 실패 · Claude Code 업데이트와 로그인을 확인해주세요. Claude Code 응답 수신도 사용할 수 있습니다.", []);
-        }
-    }
-
-    private void SaveConnections()
-    {
-        var primary = _codexSessions["codex"].Profile;
-        _connections = _connections with { CodexEnabled = primary.Enabled, UseSystemCodex = primary.UseSystem };
-        WidgetStorage.Write(Path.Combine(_dataDirectory, "codex-accounts.json"), _codexProfiles);
-        WidgetStorage.Write(Path.Combine(_dataDirectory, "connections.json"), _connections);
-    }
-
-    private string CodexTarget(JsonElement message)
-    {
-        var id = message.TryGetProperty("accountId", out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : "codex";
-        if (id is null || !_codexSessions.ContainsKey(id)) throw new InvalidOperationException("Unknown Codex account.");
-        return id;
-    }
-
-    private void UpdateCodexProfile(CodexSession session, bool enabled, bool system)
-    {
-        session.Profile = session.Profile with { Enabled = enabled, UseSystem = system };
-        _codexProfiles = _codexProfiles.Update(session.Profile);
-    }
-
-    private async Task RefreshCodexAsync(CodexSession session)
+    private async Task RefreshAccountAsync(IAccountSession session, bool force)
     {
         var id = session.Profile.Id;
         if (!session.Profile.Enabled) { session.Usage = NotConnected(id); return; }
         try
         {
-            var account = (await session.Client.ReadAccountAsync(_lifetime.Token)) with { Id = id };
+            var account = (await session.ReadAccountAsync(_lifetime.Token)) with { Id = id };
             if (!string.Equals(account.Email, session.Account.Email, StringComparison.OrdinalIgnoreCase)) session.Usage = NotConnected(id);
             session.Account = account;
-            session.Usage = account.Status == "connected" ? (await session.Client.ReadAsync(_lifetime.Token)) with { Id = id } : NotConnected(id);
+            session.Usage = account.Status == "connected"
+                ? (await session.ReadUsageAsync(force, _testMode && _claudeFactory is null && session is ClaudeSession, _lifetime.Token)) with { Id = id }
+                : NotConnected(id);
         }
         catch (OperationCanceledException) when (_closed) { throw; }
         catch (Exception ex)
         {
-            WidgetStorage.Log("Codex account usage read failed", ex);
+            WidgetStorage.Log("AI account usage read failed", ex);
             if (session.Account.Status != "connected") session.Account = new(id, session.Profile.UseSystem ? "system" : "widget", "error");
             session.Usage = session.Usage with { Status = "error", Message = ex is FileNotFoundException
-                ? "Codex CLI를 설치한 뒤 로그인해주세요." : "Codex 조회 실패 · CLI 로그인과 네트워크를 확인해주세요." };
-        }
-    }
-    private ProviderUsage NotConnected(string provider) => new(provider, "disconnected",
-        CodexAccountPreferences.IsCodexId(provider) ? "ChatGPT 계정으로 로그인해주세요." : "Claude Code 계정으로 로그인해주세요.", []);
-
-    private async Task ReadAccountsAsync()
-    {
-        if (_connections.ClaudeEnabled && _dashboard.ProviderIds.Contains("claude"))
-        {
-            try
-            {
-                _claudeAccount = await _claudeAuth.ReadAccountAsync(_lifetime.Token);
-                if (_claudeAccount.Status == "connected") BindClaudeSnapshot();
-            }
-            catch (OperationCanceledException) when (_closed) { throw; }
-            catch (Exception ex)
-            {
-                WidgetStorage.Log("Claude account check failed", ex);
-                _claudeAccount = new("claude", _connections.UseSystemClaude ? "system" : "widget", "error", Message: "Claude Code 설치와 로그인 상태를 확인해주세요.");
-            }
+                ? $"{AiServices.Name(session.Profile.Service)} CLI를 설치한 뒤 로그인해주세요." : "조회 실패 · CLI 로그인과 네트워크를 확인해주세요." };
         }
     }
 
-    private void ClearClaudeSnapshot()
+    private IAccountSession CreateSession(AiAccountProfile profile) => profile.Service switch
     {
-        if (File.Exists(_claude.SnapshotFile)) File.Delete(_claude.SnapshotFile);
-    }
-    private void BindClaudeSnapshot()
+        "codex" => new CodexSession(_dataDirectory, profile, _codexFactory),
+        "claude" => new ClaudeSession(_dataDirectory, profile, profile.Id == "claude" ? _claudeSettingsOverride : null, _claudeFactory),
+        _ => throw new InvalidOperationException("Unsupported AI service.")
+    };
+
+    private void SaveConnections()
     {
-        var folder = Path.GetDirectoryName(_claude.SnapshotFile)!;
-        var identityFile = Path.Combine(folder, "usage-account.json");
-        string? previous = null;
-        if (File.Exists(identityFile))
-        {
-            try { using var doc = JsonDocument.Parse(File.ReadAllText(identityFile)); previous = doc.RootElement.GetProperty("email").GetString(); }
-            catch (JsonException) { }
-        }
-        if (!string.Equals(previous, _claudeAccount.Email, StringComparison.OrdinalIgnoreCase) || !File.Exists(identityFile))
-        {
-            ClearClaudeSnapshot();
-            _lastClaudeAttempt = default;
-        }
-        WidgetStorage.Write(identityFile, new { email = _claudeAccount.Email });
+        var codex = _sessions["codex"].Profile;
+        var claude = _sessions["claude"].Profile;
+        _connections = new(codex.UseSystem, claude.UseSystem, codex.Enabled, claude.Enabled);
+        WidgetStorage.Write(Path.Combine(_dataDirectory, "account-profiles.json"), _accountProfiles);
+        // Keep the previous version's metadata readable without copying any credentials.
+        WidgetStorage.Write(Path.Combine(_dataDirectory, "codex-accounts.json"), new CodexAccountPreferences(
+            _accountProfiles.Profiles.Where(p => p.Service == "codex").Select(p => new CodexProfile(p.Id, p.Name, p.Enabled, p.UseSystem)).ToArray()));
+        WidgetStorage.Write(Path.Combine(_dataDirectory, "connections.json"), _connections);
     }
 
-    internal async Task SelectExistingAsync(string provider)
+    private string AccountTarget(JsonElement message, string? service = null)
+    {
+        var id = message.TryGetProperty("accountId", out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : service;
+        if (id is null || !_sessions.TryGetValue(id, out var session) || service is not null && session.Profile.Service != service)
+            throw new InvalidOperationException("Unknown AI account.");
+        return id;
+    }
+    private void UpdateProfile(IAccountSession session, bool enabled, bool system)
+    {
+        session.Profile = session.Profile with { Enabled = enabled, UseSystem = system };
+        _accountProfiles = _accountProfiles.Update(session.Profile);
+    }
+    private ProviderUsage NotConnected(string id) => new(id, "disconnected",
+        AiServices.ServiceOf(id) == "codex" ? "ChatGPT 계정으로 로그인해주세요." : "Claude Code 계정으로 로그인해주세요.", []);
+
+    internal async Task SelectExistingAsync(string id)
     {
         if (_busy || AuthBusy || _closed) return;
-        if (_codexSessions.TryGetValue(provider, out var codex))
-        {
-            if (provider != "codex") throw new InvalidOperationException("Only the original slot may follow the system CLI.");
-            UpdateCodexProfile(codex, true, true);
-            codex.RestartClient();
-            codex.Account = new(provider, "system", "checking");
-            codex.Usage = NotConnected(provider);
-        }
-        else if (provider == "claude")
-        {
-            if (_claude.Installed) _claude.Uninstall();
-            _claudeAuth.Dispose(); _claudeAuth = new();
-            _claude = CreateClaudeBridge(true);
-            _connections = _connections with { UseSystemClaude = true, ClaudeEnabled = true };
-            _claudeAccount = new("claude", "system", "checking");
-            ClearClaudeSnapshot();
-            _claudeUsage = NotConnected("claude");
-        }
-        else throw new InvalidOperationException("Unknown provider.");
+        if (!_sessions.TryGetValue(id, out var session) || id != session.Profile.Service)
+            throw new InvalidOperationException("Only the original service slot may follow its system CLI.");
+        session.PrepareSourceChange();
+        UpdateProfile(session, true, true); session.RestartClient();
+        session.Account = new(id, "system", "checking"); session.Usage = NotConnected(id);
         SaveConnections();
         await RefreshAsync(true);
-        if (provider == "claude" && _claudeAccount.Status == "connected")
-        {
-            _claude.Install();
-            _claudeUsage = _claude.Read();
-        }
-        _notice = "기존 CLI 계정 사용을 선택했습니다. CLI 계정이 바뀌면 카드도 따라갑니다.";
+        if (session is ClaudeSession claude && session.Account.Status == "connected")
+        { claude.Bridge.Install(); session.Usage = claude.ReadSnapshot() with { Id = id }; }
+        _notice = "기존 CLI 계정 사용을 선택했습니다. CLI 계정이 바뀌면 해당 카드도 따라갑니다.";
         Publish();
     }
 
-    private async Task LoginAsync(string provider)
+    private async Task LoginAsync(string id)
     {
-        if (_busy || AuthBusy || _closed) return;
-        _loginProvider = provider;
+        if (_busy || AuthBusy || _closed || !_sessions.TryGetValue(id, out var session)) return;
+        _loginProvider = id;
         _loginCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var token = _loginCancellation.Token;
         _notice = "공식 로그인 화면에서 직접 로그인해주세요. 5분 안에 완료하거나 취소할 수 있습니다.";
         try
         {
-            if (_codexSessions.TryGetValue(provider, out var codex))
-            {
-                UpdateCodexProfile(codex, true, false);
-                codex.RestartClient();
-                codex.Account = new(provider, "widget", "signingIn");
-                codex.Usage = new(provider, "signingIn", "브라우저에서 ChatGPT 로그인을 완료해주세요.", []);
-                SaveConnections(); Publish();
-                await codex.Client.LogoutAsync(token);
-                _codexLoginUrl = await codex.Client.BeginLoginAsync(token);
-                _openCodexLogin(_codexLoginUrl);
-                await codex.Client.WaitForLoginAsync(token);
-                codex.Account = (await codex.Client.ReadAccountAsync(token)) with { Id = provider };
-                if (codex.Account.Status != "connected") throw new IOException("Codex login is incomplete.");
-                codex.Usage = (await codex.Client.ReadAsync(token)) with { Id = provider };
-            }
-            else if (provider == "claude")
-            {
-                if (_claude.Installed) _claude.Uninstall();
-                _claudeAuth.Dispose(); _claudeAuth = new(AccountProfiles.ClaudeHome(_dataDirectory));
-                _claude = CreateClaudeBridge(false);
-                _connections = _connections with { UseSystemClaude = false, ClaudeEnabled = true };
-                _claudeAccount = new("claude", "widget", "signingIn");
-                _claudeUsage = new("claude", "signingIn", "공식 Claude Code 로그인 창에서 완료해주세요.", []);
-                ClearClaudeSnapshot(); SaveConnections(); Publish();
-                await _claudeAuth.LogoutAsync(token);
-                await _claudeAuth.LoginAsync(token);
-                _claudeAccount = await _claudeAuth.ReadAccountAsync(token);
-                if (_claudeAccount.Status != "connected") throw new IOException("Claude login is incomplete.");
-                _claude.Install(); BindClaudeSnapshot();
-                _claudeUsage = new("claude", "loading", "사용량을 조회하고 있습니다.", []);
-                Publish();
-                _claudeUsage = await ReadClaudeUsageAsync(true);
-            }
-            else throw new InvalidOperationException("Unknown provider.");
-            _notice = "위젯 전용 계정으로 로그인했습니다.";
+            session.PrepareSourceChange(); UpdateProfile(session, true, false); session.RestartClient();
+            session.Account = new(id, "widget", "signingIn");
+            session.Usage = new(id, "signingIn", "공식 로그인 화면에서 완료해주세요.", []);
+            SaveConnections(); Publish();
+            await session.LoginAsync(url => { _codexLoginUrl = url; _openCodexLogin(url); }, token);
+            session.Account = (await session.ReadAccountAsync(token)) with { Id = id };
+            if (session.Account.Status != "connected") throw new IOException("AI login is incomplete.");
+            if (session is ClaudeSession claude) claude.Bridge.Install();
+            session.Usage = new(id, "loading", "사용량을 조회하고 있습니다.", []); Publish();
+            session.Usage = (await session.ReadUsageAsync(true, false, token)) with { Id = id };
+            _notice = $"{session.Profile.Name} 계정을 연결했습니다.";
         }
         catch (Exception ex)
         {
             if (_closed) return;
-            if (_codexSessions.TryGetValue(provider, out var codex))
-            {
-                try { await codex.Client.CancelLoginAsync(_lifetime.Token); } catch (Exception error) { WidgetStorage.Log("Login cancellation failed", error); }
-                codex.Account = new(provider, "widget", "disconnected");
-                codex.Usage = NotConnected(provider);
-            }
-            else { _claudeAuth.CancelLogin(); _claudeAccount = new("claude", "widget", "disconnected"); _claudeUsage = NotConnected("claude"); }
+            try { await session.CancelLoginAsync(_lifetime.Token); }
+            catch (Exception error) { WidgetStorage.Log("Login cancellation failed", error); }
+            session.Account = new(id, "widget", "disconnected"); session.Usage = NotConnected(id);
             WidgetStorage.Log("Account login ended", ex);
             _notice = ex is OperationCanceledException ? "로그인을 취소했습니다." : "로그인이 완료되지 않았습니다. CLI 설치와 공식 로그인 창을 확인해주세요.";
         }
@@ -560,32 +445,16 @@ public partial class MainWindow : Window
         }
     }
 
-    internal async Task DisconnectAsync(string provider)
+    internal async Task DisconnectAsync(string id)
     {
-        if (_busy || AuthBusy || _closed) return;
+        if (_busy || AuthBusy || _closed || !_sessions.TryGetValue(id, out var session)) return;
         _busy = true; Publish();
         try
         {
-            if (_codexSessions.TryGetValue(provider, out var codex))
-            {
-                // Disconnect just this slot. Other profile directories and readers are untouched.
-                if (!codex.Profile.UseSystem && codex.Profile.Enabled) await codex.Client.LogoutAsync(_lifetime.Token);
-                UpdateCodexProfile(codex, false, false);
-                codex.RestartClient();
-                codex.Account = new(provider, "widget", "disconnected"); codex.Usage = NotConnected(provider);
-            }
-            else if (provider == "claude")
-            {
-                if (!_connections.UseSystemClaude) await _claudeAuth.LogoutAsync(_lifetime.Token);
-                if (_claude.Installed) _claude.Uninstall();
-                ClearClaudeSnapshot();
-                _claudeAuth.Dispose(); _claudeAuth = new(AccountProfiles.ClaudeHome(_dataDirectory));
-                _claude = CreateClaudeBridge(false);
-                _connections = _connections with { UseSystemClaude = false, ClaudeEnabled = false };
-                _claudeAccount = new("claude", "widget", "disconnected"); _claudeUsage = NotConnected("claude");
-            }
-            else throw new InvalidOperationException("Unknown provider.");
-            SaveConnections(); _notice = "위젯 연결을 해제했습니다. 기존 CLI의 로그인은 유지됩니다.";
+            await session.LogoutAsync(_lifetime.Token);
+            UpdateProfile(session, false, false); session.RestartClient();
+            session.Account = new(id, "widget", "disconnected"); session.Usage = NotConnected(id);
+            SaveConnections(); _notice = $"{session.Profile.Name} 연결을 해제했습니다. 다른 계정의 로그인은 유지됩니다.";
         }
         finally { _busy = false; if (!_closed) Publish(); }
     }
@@ -593,87 +462,68 @@ public partial class MainWindow : Window
     private void Publish()
     {
         if (!_ready || _closed || WebView is null) return;
-        string? Identity(AccountConnection account, ProviderUsage usage) => _testMode ? "verification" : account.Status == "connected" && account.Email is not null
-            ? $"{account.Source}:{account.Email.ToLowerInvariant()}:{usage.Plan ?? account.Plan}" : null;
+        string? Identity(AccountConnection account, ProviderUsage usage) => _testMode ? "verification"
+            : account.Status == "connected" && account.Email is not null
+                ? $"{account.Source}:{account.Email.ToLowerInvariant()}:{usage.Plan ?? account.Plan}" : null;
         var now = DateTimeOffset.UtcNow;
-        // UI fixtures update immediately; interval behavior is verified with explicit ledger clocks.
         var interval = _testMode ? TimeSpan.Zero : TimeSpan.FromMinutes(_measurement.IntervalMinutes);
-        var codex = _codexSessions.Values.ToDictionary(session => session.Profile.Id, session =>
+        var providers = _dashboard.ProviderIds.Select(id =>
         {
-            var usage = session.Usage with { Id = session.Profile.Id, Name = session.Profile.Name };
-            return _dashboard.ProviderIds.Contains(session.Profile.Id)
-                ? _daily.Observe(usage, Identity(session.Account, usage), now, interval, _measurement.WindowMinutes) : usage;
-        });
-        var claude = _dashboard.ProviderIds.Contains("claude") ? _daily.Observe(_claudeUsage, Identity(_claudeAccount, _claudeUsage), now, interval, _measurement.WindowMinutes) : _claudeUsage;
+            var session = _sessions[id];
+            var usage = session.Usage with { Id = id, Name = session.Profile.Name, Service = session.Profile.Service };
+            return _daily.Observe(usage, Identity(session.Account, usage), now, interval, _measurement.WindowMinutes);
+        }).ToArray();
         WebView.PostWebMessageAsJson(JsonSerializer.Serialize(new
         {
             busy = _busy, pinned = Topmost, collapsed = _viewMode != WidgetViewMode.Expanded, viewMode = (int)_viewMode, viewRevision = _viewRevision,
-            bridgeInstalled = _claude.Installed, notice = _notice,
-            authBusy = AuthBusy, loginProvider = _loginProvider,
-            animateTransitions = _animateTransitions,
-            transitionPhase = _transitionPhase, transitionFrom = (int)_transitionFrom,
-            logoRotation = _logoRotation, logoRotationStep = _logoRotationStep,
-            anchorCorner = (int)_anchorCorner,
-            lastCardView = (int)_lastCardView,
-            measurementIntervalMinutes = _measurement.IntervalMinutes,
-            measurementWindowMinutes = _measurement.WindowMinutes,
-            maxCardHeight = MaximumCardHeight(),
-            accounts = _codexSessions.Values.Select(session => session.Account with { Name = session.Profile.Name }).Append(_claudeAccount).ToArray(),
-            providers = _dashboard.ProviderIds.Select(id => id == "claude" ? claude : codex[id]).ToArray()
+            bridgeInstalled = Claude.Installed, notice = _notice, authBusy = AuthBusy, loginProvider = _loginProvider,
+            animateTransitions = _animateTransitions, transitionPhase = _transitionPhase, transitionFrom = (int)_transitionFrom,
+            logoRotation = _logoRotation, logoRotationStep = _logoRotationStep, anchorCorner = (int)_anchorCorner, lastCardView = (int)_lastCardView,
+            measurementIntervalMinutes = _measurement.IntervalMinutes, measurementWindowMinutes = _measurement.WindowMinutes,
+            maxCardHeight = MaximumCardHeight(), serviceCatalog = AiServices.Catalog,
+            accounts = _sessions.Values.Select(session => session.Account with
+                { Name = session.Profile.Name, Service = session.Profile.Service, Enabled = session.Profile.Enabled }).ToArray(), providers
         }, WidgetStorage.Json));
     }
 
     internal void SetFixture(ProviderUsage codex, ProviderUsage claude, bool busy = false)
     {
         if (!_testMode) throw new InvalidOperationException("Fixtures are only available in verification mode.");
-        _timer.Stop();
-        _codexUsage = codex; _claudeUsage = claude; _busy = busy;
-        // Fixtures represent account state too, without changing persisted login preferences.
-        _codexAccount = new("codex", "widget", codex.Status is "disconnected" or "signingIn" ? "disconnected" : "connected");
-        _claudeAccount = new("claude", "widget", claude.Status is "disconnected" or "signingIn" ? "disconnected" : "connected");
-        Publish();
+        _timer.Stop(); _busy = busy;
+        SetAccountFixture("codex", codex); SetAccountFixture("claude", claude);
     }
-
-    internal void SetCodexFixture(string id, ProviderUsage usage, string? email = null)
+    internal void SetCodexFixture(string id, ProviderUsage usage, string? email = null) => SetAccountFixture(id, usage, email);
+    internal void SetAccountFixture(string id, ProviderUsage usage, string? email = null)
     {
-        if (!_testMode || !_codexSessions.TryGetValue(id, out var session)) throw new InvalidOperationException("Unknown test account.");
+        if (!_testMode || !_sessions.TryGetValue(id, out var session)) throw new InvalidOperationException("Unknown test account.");
         session.Usage = usage with { Id = id };
-        session.Account = new(id, "widget", usage.Status == "disconnected" ? "disconnected" : "connected", Email: email);
+        session.Account = new(id, "widget", usage.Status is "disconnected" or "signingIn" ? "disconnected" : "connected", Email: email);
         Publish();
     }
 
-    internal async Task<string?> AddCodexAccountAsync()
+    internal Task<string?> AddCodexAccountAsync() => AddAccountAsync("codex");
+    internal async Task<string?> AddAccountAsync(string service)
     {
-        if (_busy || AuthBusy || _closed) return null;
-        var updated = _codexProfiles.Add(out var profile);
-        WidgetStorage.Write(Path.Combine(_dataDirectory, "codex-accounts.json"), updated);
-        _codexProfiles = updated;
-        _codexSessions.Add(profile.Id, new(_dataDirectory, profile, _codexFactory));
+        if (_busy || AuthBusy || _closed || !AiServices.Catalog.Any(item => item.Id == service)) return null;
+        var updated = _accountProfiles.Add(service, out var profile);
+        WidgetStorage.Write(Path.Combine(_dataDirectory, "account-profiles.json"), updated);
+        _accountProfiles = updated; _sessions.Add(profile.Id, CreateSession(profile)); SaveConnections();
         await SetProviderVisibilityAsync(profile.Id, true);
-        _notice = $"{profile.Name} 카드를 추가했습니다. 계정 연결에서 ChatGPT로 로그인해주세요.";
-        Publish();
+        _notice = $"{profile.Name} 카드를 추가했습니다. 계정 연결에서 로그인해주세요."; Publish();
         return profile.Id;
     }
-
     private async Task SetProviderVisibilityAsync(string id, bool visible)
     {
-        if (!DashboardPreferences.Supported(id) || id != "claude" && !_codexSessions.ContainsKey(id) || AuthBusy || _busy) return;
+        if (!_sessions.TryGetValue(id, out var session) || AuthBusy || _busy) return;
         var ids = _dashboard.ProviderIds.ToList();
         if (visible ? ids.Contains(id) : !ids.Contains(id)) return;
         if (visible) ids.Add(id); else ids.Remove(id);
         _dashboard = new(ids.ToArray());
-        // Persist selection immediately, even before login. LocalApplicationData
-        // keeps this user's dashboard independent of the executable/update folder.
         WidgetStorage.Write(Path.Combine(_dataDirectory, "dashboard.json"), _dashboard);
-        if (!visible && _codexSessions.TryGetValue(id, out var session))
-        {
-            // Stop the owned reader while preserving official CLI credentials.
-            session.RestartClient();
-        }
+        if (!visible) session.RestartClient();
         Publish();
-        if (visible && !_testMode && (id == "claude" ? _connections.ClaudeEnabled : _codexSessions[id].Profile.Enabled)) await RefreshAsync();
+        if (visible && !_testMode && session.Profile.Enabled) await RefreshAsync();
     }
-
     private double MaximumCardHeight()
     {
         var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
@@ -681,6 +531,7 @@ public partial class MainWindow : Window
         return GetMonitorInfo(MonitorFromWindow(handle, 2), ref info)
             ? Math.Clamp((info.Work.Bottom - info.Work.Top) / VisualTreeHelper.GetDpi(this).DpiScaleY - 32, 140, 880) : 880;
     }
+
     internal void ShowError(string message)
     {
         if (_viewMode == WidgetViewMode.Logo) SetViewMode(WidgetViewMode.Expanded);

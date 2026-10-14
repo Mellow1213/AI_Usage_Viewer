@@ -5,7 +5,7 @@ namespace UsageWidget;
 
 internal sealed record DashboardPreferences(string[] ProviderIds)
 {
-    internal static bool Supported(string id) => id == "claude" || CodexAccountPreferences.IsCodexId(id);
+    internal static bool Supported(string id) => AiServices.ServiceOf(id) is not null;
     internal static DashboardPreferences Read(string directory, ConnectionPreferences connections)
     {
         var path = Path.Combine(directory, "dashboard.json");
@@ -14,9 +14,9 @@ internal sealed record DashboardPreferences(string[] ProviderIds)
             if (File.Exists(path))
             {
                 var saved = JsonSerializer.Deserialize<DashboardPreferences>(File.ReadAllText(path), WidgetStorage.Json);
-                var profiles = CodexAccountPreferences.Read(directory, connections);
+                var profiles = AiAccountPreferences.Read(directory, connections);
                 return new((saved?.ProviderIds ?? []).Where(id => id is not null && Supported(id)
-                    && (id == "claude" || profiles.Profiles.Any(profile => profile.Id == id))).Distinct().ToArray());
+                    && profiles.Profiles.Any(profile => profile.Id == id)).Distinct().ToArray());
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)

@@ -46,28 +46,3 @@ internal sealed record CodexAccountPreferences(CodexProfile[] Profiles)
     internal CodexAccountPreferences Update(CodexProfile profile) =>
         new(Profiles.Select(p => p.Id == profile.Id ? profile : p).ToArray());
 }
-
-internal sealed class CodexSession : IDisposable
-{
-    internal CodexProfile Profile { get; set; }
-    internal CodexClient Client { get; private set; }
-    internal AccountConnection Account { get; set; }
-    internal ProviderUsage Usage { get; set; }
-    private readonly string _directory;
-    private readonly Func<CodexProfile, CodexClient>? _clientFactory;
-
-    internal CodexSession(string directory, CodexProfile profile, Func<CodexProfile, CodexClient>? clientFactory = null)
-    {
-        _directory = directory;
-        _clientFactory = clientFactory;
-        Profile = profile;
-        Client = CreateClient();
-        Account = new(profile.Id, profile.UseSystem ? "system" : "widget", "disconnected");
-        Usage = new(profile.Id, "disconnected", "ChatGPT 계정으로 로그인해주세요.", []);
-    }
-
-    private CodexClient CreateClient() => _clientFactory?.Invoke(Profile)
-        ?? new(Profile.UseSystem ? null : AccountProfiles.CodexHome(_directory, Profile.Id));
-    internal void RestartClient() { Client.Dispose(); Client = CreateClient(); }
-    public void Dispose() => Client.Dispose();
-}

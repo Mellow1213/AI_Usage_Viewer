@@ -16,6 +16,7 @@ internal static class Program
     {
         if (args.Contains("--rpc-fixture")) return RunRpcFixture();
         if (args.Contains("--claude-usage-fixture")) return RunClaudeUsageFixture(args.Contains("--unsupported"));
+        if (args.Contains("--claude-account-fixture")) return RunClaudeAccountFixture();
         _output = Path.GetFullPath(args.FirstOrDefault() ?? "artifacts/widget-verification");
         Directory.CreateDirectory(_output);
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -24,7 +25,8 @@ internal static class Program
             string? error = null;
             try
             {
-                if (args.Contains("--multi-codex-only")) await VerifyMultipleCodexAsync();
+                if (args.Contains("--multi-ai-only")) await VerifyMultipleAiAsync();
+                else if (args.Contains("--multi-codex-only")) await VerifyMultipleCodexAsync();
                 else await VerifyAsync(args.Contains("--live"));
                 _exitCode = 0;
             }
@@ -377,6 +379,160 @@ internal static class Program
             await CaptureAsync("live-codex.png");
         }
         await VerifyMultipleCodexAsync();
+        await VerifyMultipleAiAsync();
+    }
+
+    private static async Task VerifyMultipleAiAsync()
+    {
+        _window?.Close();
+        var directory = Path.Combine(_output, "multi-ai-" + Guid.NewGuid().ToString("N"));
+        var legacy = new ConnectionPreferences(CodexEnabled: true, ClaudeEnabled: true);
+        var registry = AiAccountPreferences.Read(directory, legacy);
+        Check(registry.Profiles.Select(p => p.Service).SequenceEqual(new[] { "codex", "claude" }) && registry.Profiles.All(p => p.Enabled),
+            "Common account registry migrates both existing services and their connection settings");
+        registry = registry.Add("codex", out var extraCodex);
+        registry = registry.Update(extraCodex with { Enabled = true });
+        registry = registry.Add("claude", out var extraClaude);
+        registry = registry.Update(extraClaude with { Enabled = true });
+        WidgetStorage.Write(Path.Combine(directory, "account-profiles.json"), registry);
+        WidgetStorage.Write(Path.Combine(directory, "connections.json"), legacy);
+        var ids = new[] { "codex", "claude", extraCodex.Id, extraClaude.Id };
+        WidgetStorage.Write(Path.Combine(directory, "dashboard.json"), new DashboardPreferences(ids));
+        var firstClaudeHome = AccountProfiles.ClaudeHome(directory);
+        var secondClaudeHome = AccountProfiles.ClaudeHome(directory, extraClaude.Id);
+        Check(firstClaudeHome != secondClaudeHome && firstClaudeHome == Path.Combine(directory, "Accounts", "Claude"),
+            "Claude keeps its original login directory and gives each extra account a separate config folder");
+        foreach (var invalid in new[] { "claude-../../private", "claude-invalid", extraCodex.Id })
+        {
+            try { AccountProfiles.ClaudeHome(directory, invalid); throw new Exception("Unsafe Claude account path accepted"); }
+            catch (ArgumentException) { Check(true, "Invalid or cross-service Claude profile ID rejected"); }
+        }
+        foreach (var profile in registry.Profiles)
+        {
+            var home = profile.Service == "codex" ? AccountProfiles.CodexHome(directory, profile.Id) : AccountProfiles.ClaudeHome(directory, profile.Id);
+            Directory.CreateDirectory(home);
+            File.WriteAllText(Path.Combine(home, "fixture-login"), "signed-in");
+            if (profile.Service == "claude")
+            {
+                WidgetStorage.Write(Path.Combine(home, "settings.json"), new { theme = profile.Name, statusLine = new { type = "command", command = "printf 'original'" } });
+                new ClaudeBridge(Path.Combine(home, "UsageBridge"), Path.Combine(home, "settings.json")).Install();
+            }
+        }
+        CodexClient CodexFactory(CodexProfile profile) => new(AccountProfiles.CodexHome(directory, profile.Id), () =>
+        {
+            var info = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "UsageWidget.Verification.exe"));
+            foreach (var argument in new[] { "--rpc-fixture", "--fixture-email", profile.Id == "codex" ? "codex-one@example.invalid" : "codex-two@example.invalid", "--fixture-used", profile.Id == "codex" ? "12" : "27" }) info.ArgumentList.Add(argument);
+            return info;
+        });
+        ClaudeAuthClient ClaudeFactory(AiAccountProfile profile) => new(AccountProfiles.ClaudeHome(directory, profile.Id), arguments =>
+        {
+            var info = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "UsageWidget.Verification.exe"));
+            foreach (var argument in new[] { "--claude-account-fixture", "--fixture-email", profile.Id == "claude" ? "claude-one@example.invalid" : "claude-two@example.invalid", "--fixture-five-hour", profile.Id == "claude" ? "20" : "45", "--fixture-weekly", profile.Id == "claude" ? "30" : "68", "--fixture-reset", DateTimeOffset.UtcNow.AddDays(2).ToString("O") }) info.ArgumentList.Add(argument);
+            foreach (var argument in arguments) info.ArgumentList.Add(argument);
+            info.Environment["ANTHROPIC_API_KEY"] = "fixture-inherited-key";
+            info.Environment["CLAUDE_CODE_OAUTH_TOKEN"] = "fixture-inherited-token";
+            return info;
+        });
+        _window = new MainWindow(directory, testMode: true, codexFactory: CodexFactory, openCodexLogin: _ => { }, claudeFactory: ClaudeFactory);
+        _window.Show();
+        await WaitAsync(() => _window.Ready, "Mixed AI React ready");
+        await _window.RefreshAsync(true);
+        await Task.Delay(1100);
+        await AssertScriptAsync("document.querySelectorAll('.provider.codex').length===2 && document.querySelectorAll('.provider.claude').length===2 && [...document.querySelectorAll('.provider .number')].map(node=>node.textContent).join(',')==='88,80,73,55'",
+            "Mixed dashboard routes independent Codex and Claude CLI quotas to four account cards");
+        foreach (var home in new[] { firstClaudeHome, secondClaudeHome })
+        {
+            using var env = JsonDocument.Parse(File.ReadAllText(Path.Combine(home, "fixture-environment.json")));
+            Check(env.RootElement.GetProperty("home").GetString() == home && !env.RootElement.GetProperty("apiKeyInherited").GetBoolean()
+                && !env.RootElement.GetProperty("oauthTokenInherited").GetBoolean(), "Each Claude CLI receives its own config directory without inherited credentials");
+        }
+        var firstSnapshot = Path.Combine(firstClaudeHome, "UsageBridge", "claude-usage.json");
+        var secondSnapshot = Path.Combine(secondClaudeHome, "UsageBridge", "claude-usage.json");
+        Check(File.Exists(firstSnapshot) && File.Exists(secondSnapshot) && File.ReadAllText(firstSnapshot) != File.ReadAllText(secondSnapshot),
+            "Claude usage bridges store different accounts in different snapshot files");
+        await CaptureAsync("multi-ai-cards.png");
+        await ScriptAsync("document.querySelector('[aria-label=\"간략히 보기\"]').click()");
+        await Task.Delay(1000);
+        await AssertScriptAsync($"document.querySelector('.compact>[data-account-id=\"claude\"] strong').textContent==='70%' && document.querySelector('.compact>[data-account-id=\"{extraClaude.Id}\"] strong').textContent==='32%' && document.querySelector('.compact>[data-account-id=\"{extraClaude.Id}\"] .compact-subvalue').textContent==='55%'",
+            "Every compact Claude account independently prioritizes weekly quota and retains its own five-hour subquota");
+        await CaptureAsync("multi-ai-compact.png");
+        await ScriptAsync("document.querySelector('[aria-label=\"자세히 보기\"]').click()");
+        await Task.Delay(850);
+        await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
+        await Task.Delay(250);
+        await ScriptAsync("document.querySelector('[aria-label=\"계정 연결 관리\"]').click()");
+        await Task.Delay(400);
+        await AssertScriptAsync($"document.querySelector('[aria-label=\"AI 계정 추가\"]')!==null && document.querySelectorAll('.account-box').length===4 && !document.querySelector('.account-box[data-account-id=\"{extraClaude.Id}\"]').textContent.includes('기존 CLI 계정 사용')",
+            "Common account manager offers an AI chooser and extra Claude slots stay isolated from the system CLI");
+        await ScriptAsync($"document.querySelector('.account-box[data-account-id=\"{extraClaude.Id}\"] .account-primary').click()");
+        await Task.Delay(900);
+        await AssertScriptAsync($"document.querySelector('.account-box[data-account-id=\"{extraClaude.Id}\"] .account-email').textContent==='claude-two@example.invalid' && document.querySelector('.account-box[data-account-id=\"claude\"] .account-email').textContent==='claude-one@example.invalid'",
+            "Extra Claude login button completes the selected CLI profile's auth flow without replacing the first account");
+        await CaptureAsync("multi-ai-accounts.png");
+        await ScriptAsync("document.querySelector('[aria-label=\"AI 계정 추가\"]').click()");
+        await Task.Delay(350);
+        await AssertScriptAsync("!document.querySelector('[aria-label=\"Codex 추가\"]').disabled && !document.querySelector('[aria-label=\"Claude 추가\"]').disabled",
+            "Both AI services remain available for repeated account additions");
+        await CaptureAsync("multi-ai-picker.png");
+        var beforeCount = AiAccountPreferences.Read(directory, new()).Profiles.Length;
+        await ScriptAsync("document.querySelector('[aria-label=\"Claude 추가\"]').click()");
+        await Task.Delay(300);
+        var restored = AiAccountPreferences.Read(directory, new());
+        var added = restored.Profiles.Last();
+        Check(restored.Profiles.Length == beforeCount + 1 && added.Service == "claude" && !added.Enabled,
+            "Service picker adds a distinct persisted Claude slot without adopting another login");
+        await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
+        await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
+        await Task.Delay(250);
+        await ScriptAsync("document.querySelector('[aria-label=\"계정 연결 관리\"]').click()");
+        await Task.Delay(300);
+        await ScriptAsync($"[...document.querySelectorAll('.account-box[data-account-id=\"{extraClaude.Id}\"] .account-secondary')].find(button=>button.textContent==='로그아웃').click()");
+        await Task.Delay(700);
+        await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
+        await AssertScriptAsync($"document.querySelector('[data-account-id=\"{extraClaude.Id}\"] .number').textContent==='—' && document.querySelector('[data-account-id=\"claude\"] .number').textContent==='80' && document.querySelector('[data-account-id=\"codex\"] .number').textContent==='88'",
+            "Logging out an extra Claude account preserves both the original Claude and the Codex accounts");
+        using (var settings = JsonDocument.Parse(File.ReadAllText(Path.Combine(secondClaudeHome, "settings.json"))))
+            Check(settings.RootElement.GetProperty("statusLine").GetProperty("command").GetString() == "printf 'original'",
+                "Claude disconnect restores only that account's original statusline configuration");
+        Check(File.Exists(firstSnapshot) && !File.Exists(secondSnapshot) && File.Exists(Path.Combine(firstClaudeHome, "fixture-login"))
+            && !File.Exists(Path.Combine(secondClaudeHome, "fixture-login")), "Claude logout and cache clearing remain local to the chosen account");
+        await ScriptAsync($"window.chrome.webview.postMessage({{action:'removeProvider',provider:'claude'}})");
+        await Task.Delay(250);
+        Check(AiAccountPreferences.Read(directory, new()).Profiles.Single(p => p.Id == "claude").Enabled, "Hiding a Claude card keeps its saved login state");
+        await ScriptAsync("window.chrome.webview.postMessage({action:'showProvider',provider:'claude'})");
+        await Task.Delay(250);
+        var expectedIds = DashboardPreferences.Read(directory, new()).ProviderIds;
+        _window.Close();
+        _window = new MainWindow(directory, testMode: true, codexFactory: CodexFactory, openCodexLogin: _ => { }, claudeFactory: ClaudeFactory);
+        _window.Show();
+        await WaitAsync(() => _window.Ready, "Restored mixed AI React ready");
+        await _window.RefreshAsync(true);
+        await Task.Delay(1100);
+        Check(await ScriptAsync("document.querySelectorAll('.provider').length") == expectedIds.Length.ToString(), "Mixed-service account selections and order survive restart");
+        await AssertScriptAsync($"document.querySelector('[data-account-id=\"{extraClaude.Id}\"] .number').textContent==='—' && document.querySelector('[data-account-id=\"claude\"] .number').textContent==='80'",
+            "Restart preserves Claude's per-account logout state without affecting its connected sibling");
+        var savedMetadata = File.ReadAllText(Path.Combine(directory, "account-profiles.json"));
+        Check(!savedMetadata.Contains("@") && !savedMetadata.Contains("fixture-inherited"), "Shared account registry contains neither account emails nor credentials");
+        await ScriptAsync("window.chrome.webview.postMessage({action:'removeProvider',provider:'claude'})");
+        await Task.Delay(250);
+        _window.Close();
+        _window = new MainWindow(directory, testMode: true, codexFactory: CodexFactory, openCodexLogin: _ => { }, claudeFactory: ClaudeFactory);
+        _window.Show();
+        await WaitAsync(() => _window.Ready, "Hidden primary account restart ready");
+        await _window.RefreshAsync(true);
+        await ScriptAsync("document.querySelector('[aria-label=\"AI 추가\"]').click()");
+        await Task.Delay(400);
+        await AssertScriptAsync("[...document.querySelectorAll('.selected-provider')].some(row=>row.querySelector('span').textContent==='Claude' && row.querySelector('button').textContent.includes('다시 표시'))",
+            "A saved hidden primary account remains discoverable after restart without polling its credentials");
+        var hiddenCount = AiAccountPreferences.Read(directory, new()).Profiles.Length;
+        await ScriptAsync("document.querySelector('[aria-label=\"Claude 추가\"]').click()");
+        await Task.Delay(300);
+        Check(AiAccountPreferences.Read(directory, new()).Profiles.Length == hiddenCount + 1
+            && !DashboardPreferences.Read(directory, new()).ProviderIds.Contains("claude"),
+            "Adding another AI account creates a new slot rather than silently restoring a hidden saved account");
+        await ScriptAsync("[...document.querySelectorAll('.selected-provider')].find(row=>row.querySelector('span').textContent==='Claude' && row.querySelector('button').textContent.includes('다시 표시')).querySelector('button').click()");
+        await Task.Delay(250);
+        Check(DashboardPreferences.Read(directory, new()).ProviderIds.Contains("claude"), "Saved primary account restores through the shared picker action");
     }
 
     private static async Task VerifyMultipleCodexAsync()
@@ -456,7 +612,7 @@ internal static class Program
         await Task.Delay(250);
         await ScriptAsync("document.querySelector('[aria-label=\"계정 연결 관리\"]').click()");
         await Task.Delay(400);
-        await AssertScriptAsync($"document.querySelectorAll('.account-box.codex').length===3 && document.querySelector('[aria-label=\"Codex 계정 추가\"]')!==null && !document.querySelector('.account-box[data-account-id=\"{second.Id}\"]').textContent.includes('기존 CLI 계정 사용')",
+        await AssertScriptAsync($"document.querySelectorAll('.account-box.codex').length===3 && document.querySelector('[aria-label=\"AI 계정 추가\"]')!==null && !document.querySelector('.account-box[data-account-id=\"{second.Id}\"]').textContent.includes('기존 CLI 계정 사용')",
             "Connection management exposes an add-account action and keeps extra accounts isolated from the system CLI");
         await CaptureAsync("multi-codex-accounts.png");
         // Drive the real UI/native OAuth path against an isolated CLI fixture; never open a real login browser.
@@ -747,6 +903,11 @@ internal static class Program
 
     private static int RunClaudeUsageFixture(bool unsupported)
     {
+        var args = Environment.GetCommandLineArgs();
+        string Option(string key, string fallback) => Array.IndexOf(args, key) is var index && index >= 0 && index + 1 < args.Length ? args[index + 1] : fallback;
+        var fiveHour = int.Parse(Option("--fixture-five-hour", "2"));
+        var weekly = int.Parse(Option("--fixture-weekly", "48"));
+        var reset = Option("--fixture-reset", "2026-10-13T19:30:00+09:00");
         var initialized = false;
         while (Console.ReadLine() is { } line)
         {
@@ -765,11 +926,37 @@ internal static class Program
             else
             {
                 object result = subtype == "initialize" ? new { } : new { rate_limits_available = true, rate_limits = new {
-                    five_hour = new { utilization = 2, resets_at = "2026-10-13T19:30:00+09:00" },
-                    seven_day = new { utilization = 48, resets_at = "2026-10-13T19:30:00+09:00" } }, session = new { total_cost_usd = 0 } };
+                    five_hour = new { utilization = fiveHour, resets_at = reset },
+                    seven_day = new { utilization = weekly, resets_at = reset } }, session = new { total_cost_usd = 0 } };
                 Console.WriteLine(JsonSerializer.Serialize(new { type = "control_response", response = new { request_id = id, subtype = "success", response = result } }));
             }
         }
+        return 0;
+    }
+
+    private static int RunClaudeAccountFixture()
+    {
+        var args = Environment.GetCommandLineArgs();
+        var home = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR")!;
+        Directory.CreateDirectory(home);
+        var login = Path.Combine(home, "fixture-login");
+        File.WriteAllText(Path.Combine(home, "fixture-environment.json"), JsonSerializer.Serialize(new
+        {
+            home, apiKeyInherited = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")),
+            oauthTokenInherited = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN"))
+        }));
+        var auth = Array.IndexOf(args, "auth");
+        if (auth < 0) return RunClaudeUsageFixture(false);
+        var action = args[auth + 1];
+        if (action == "login") { File.WriteAllText(login, "signed-in"); return 0; }
+        if (action == "logout") { if (File.Exists(login)) File.Delete(login); return 0; }
+        if (action != "status") return 12;
+        var emailIndex = Array.IndexOf(args, "--fixture-email");
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            loggedIn = File.Exists(login), authMethod = "claude.ai", email = args[emailIndex + 1],
+            subscriptionType = "max", configDirectory = home
+        }));
         return 0;
     }
 

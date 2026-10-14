@@ -8,7 +8,7 @@ internal sealed record QuotaWindow(string Key, string Label, double UsedPercent,
 }
 
 internal sealed record ProviderUsage(string Id, string Status, string Message, IReadOnlyList<QuotaWindow> Windows,
-    DateTimeOffset? UpdatedAt = null, string? Plan = null, string? Name = null);
+    DateTimeOffset? UpdatedAt = null, string? Plan = null, string? Name = null, string? Service = null);
 
 internal static class UsageParser
 {
