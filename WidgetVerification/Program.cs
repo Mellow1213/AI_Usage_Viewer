@@ -22,7 +22,12 @@ internal static class Program
         app.Startup += async (_, _) =>
         {
             string? error = null;
-            try { await VerifyAsync(args.Contains("--live")); _exitCode = 0; }
+            try
+            {
+                if (args.Contains("--multi-codex-only")) await VerifyMultipleCodexAsync();
+                else await VerifyAsync(args.Contains("--live"));
+                _exitCode = 0;
+            }
             catch (Exception ex) { error = ex.ToString(); Console.Error.WriteLine(error); }
             finally
             {
@@ -94,7 +99,7 @@ internal static class Program
         await CaptureAsync("provider-picker.png");
         await ScriptAsync("document.querySelector('[aria-label=\"Codex 추가\"]').click()");
         await Task.Delay(250);
-        await AssertScriptAsync("document.querySelectorAll('.provider').length === 1 && document.querySelector('[aria-label=\"Codex 추가\"]').disabled && document.querySelector('.codex .number').textContent === '—'", "Selecting Codex adds exactly one disconnected card and prevents duplicate additions");
+        await AssertScriptAsync("document.querySelectorAll('.provider').length === 1 && !document.querySelector('[aria-label=\"Codex 추가\"]').disabled && document.querySelector('.codex .number').textContent === '—'", "Selecting the first Codex adds one disconnected card and keeps additional-account selection available");
         Check(!AccountProfiles.ReadPreferences(uiProfile).CodexEnabled, "Adding a card does not adopt or log in to an account");
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
         await Task.Delay(400);
@@ -371,6 +376,147 @@ internal static class Program
             await Task.Delay(1200);
             await CaptureAsync("live-codex.png");
         }
+        await VerifyMultipleCodexAsync();
+    }
+
+    private static async Task VerifyMultipleCodexAsync()
+    {
+        _window?.Close();
+        var profile = Path.Combine(_output, "multiple-codex-" + Guid.NewGuid().ToString("N"));
+        var legacy = new ConnectionPreferences(CodexEnabled: true);
+        var registry = CodexAccountPreferences.Read(profile, legacy);
+        Check(registry.Profiles.Single().Id == "codex" && registry.Profiles.Single().Enabled,
+            "Legacy Codex connection migrates to the original slot without losing its enabled state");
+        Check(AccountProfiles.CodexHome(profile) == Path.Combine(profile, "Accounts", "Codex"),
+            "Upgrade keeps the original Codex credential directory");
+        registry = registry.Add(out var second);
+        registry = registry.Update(second with { Enabled = true });
+        registry = registry.Add(out var third);
+        registry = registry.Update(third with { Enabled = true });
+        WidgetStorage.Write(Path.Combine(profile, "codex-accounts.json"), registry);
+        WidgetStorage.Write(Path.Combine(profile, "connections.json"), legacy);
+        var ids = new[] { "codex", second.Id, third.Id };
+        WidgetStorage.Write(Path.Combine(profile, "dashboard.json"), new DashboardPreferences(ids));
+        Check(ids.Select(id => AccountProfiles.CodexHome(profile, id)).Distinct().Count() == 3,
+            "Each Codex account has a distinct credential directory");
+        foreach (var invalid in new[] { "codex-../../private", "codex-..", "codex-not-a-guid" })
+        {
+            try { AccountProfiles.CodexHome(profile, invalid); throw new Exception("Unsafe account path accepted"); }
+            catch (ArgumentException) { Check(true, "Unsafe Codex profile ID rejected"); }
+        }
+        foreach (var id in ids)
+        {
+            var home = AccountProfiles.CodexHome(profile, id);
+            Directory.CreateDirectory(home);
+            File.WriteAllText(Path.Combine(home, "fixture-login"), "signed-in");
+        }
+        CodexClient Factory(CodexProfile account)
+        {
+            var home = AccountProfiles.CodexHome(profile, account.Id);
+            Directory.CreateDirectory(home);
+            return new(home, () =>
+            {
+                var info = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "UsageWidget.Verification.exe"));
+                info.ArgumentList.Add("--rpc-fixture");
+                info.ArgumentList.Add("--fixture-email");
+                info.ArgumentList.Add(account.Id == "codex" ? "one@example.invalid" : account.Id == second.Id ? "two@example.invalid" : "three@example.invalid");
+                info.ArgumentList.Add("--fixture-used");
+                info.ArgumentList.Add(account.Id == "codex" ? "12" : account.Id == second.Id ? "37" : "68");
+                return info;
+            });
+        }
+        var openedLoginUrls = new List<string>();
+        _window = new MainWindow(profile, testMode: true, codexFactory: Factory, openCodexLogin: openedLoginUrls.Add);
+        _window.Show();
+        await WaitAsync(() => _window.Ready, "Multi-account React ready");
+        await _window.RefreshAsync();
+        await Task.Delay(1100);
+        await AssertScriptAsync("[...document.querySelectorAll('.provider .number')].map(node=>node.textContent).join(',')==='88,63,32' && document.querySelectorAll('.provider.codex').length===3",
+            "Three independent Codex CLI readers route their own quota values to three cards");
+        await AssertScriptAsync("[...document.querySelectorAll('.card-foot span:first-child')].map(node=>node.textContent).join(',')==='one@example.invalid,two@example.invalid,three@example.invalid'",
+            "Each usage card displays its own account identity");
+        Check(DashboardPreferences.Read(profile, new()).ProviderIds.SequenceEqual(ids), "Multi-account card order persists");
+        var homeSecond = AccountProfiles.CodexHome(profile, second.Id);
+        File.WriteAllText(Path.Combine(homeSecond, "fixture-fail-usage"), "fail");
+        await _window.RefreshAsync();
+        await Task.Delay(200);
+        await AssertScriptAsync($"document.querySelector('[data-account-id=\"{second.Id}\"] .status-tag').textContent.includes('연결 오류') && document.querySelector('[data-account-id=\"codex\"] .status-tag').textContent.includes('연결됨') && document.querySelector('[data-account-id=\"{third.Id}\"] .status-tag').textContent.includes('연결됨')",
+            "One account's CLI failure does not interrupt the other accounts");
+        File.Delete(Path.Combine(homeSecond, "fixture-fail-usage"));
+        await _window.RefreshAsync();
+        await ScriptAsync("document.querySelector('[aria-label=\"간략히 보기\"]').click()");
+        await Task.Delay(1000);
+        await AssertScriptAsync("document.querySelectorAll('.compact>div.codex').length===3 && [...document.querySelectorAll('.compact-name')].map(node=>node.textContent).join(',').includes('Codex 2') && document.documentElement.scrollWidth<=innerWidth",
+            "Compact multi-account cards use the Codex theme, distinguish account names and fit horizontally");
+        await CaptureAsync("multi-codex-compact.png");
+        await ScriptAsync("document.querySelector('[aria-label=\"자세히 보기\"]').click()");
+        await Task.Delay(900);
+        await CaptureAsync("multi-codex-cards.png");
+        await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
+        await Task.Delay(250);
+        await ScriptAsync("document.querySelector('[aria-label=\"계정 연결 관리\"]').click()");
+        await Task.Delay(400);
+        await AssertScriptAsync($"document.querySelectorAll('.account-box.codex').length===3 && document.querySelector('[aria-label=\"Codex 계정 추가\"]')!==null && !document.querySelector('.account-box[data-account-id=\"{second.Id}\"]').textContent.includes('기존 CLI 계정 사용')",
+            "Connection management exposes an add-account action and keeps extra accounts isolated from the system CLI");
+        await CaptureAsync("multi-codex-accounts.png");
+        // Drive the real UI/native OAuth path against an isolated CLI fixture; never open a real login browser.
+        await ScriptAsync($"document.querySelector('.account-box[data-account-id=\"{second.Id}\"] .account-primary').click()");
+        await Task.Delay(900);
+        Check(openedLoginUrls.Count == 1 && AccountProfiles.IsOfficialCodexLoginUrl(openedLoginUrls[0]),
+            "The extra account login button drives official OAuth for its own isolated CLI profile");
+        await AssertScriptAsync($"document.querySelector('.account-box[data-account-id=\"{second.Id}\"] .account-email').textContent==='two@example.invalid' && document.querySelector('.account-box[data-account-id=\"codex\"] .account-email').textContent==='one@example.invalid'",
+            "Completing a second account's OAuth preserves the original account identity");
+        await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
+        await _window.DisconnectAsync(second.Id);
+        await Task.Delay(250);
+        await AssertScriptAsync($"document.querySelector('[data-account-id=\"{second.Id}\"] .number').textContent==='—' && document.querySelector('[data-account-id=\"codex\"] .number').textContent==='88' && document.querySelector('[data-account-id=\"{third.Id}\"] .number').textContent==='32'",
+            "Logging out one Codex slot keeps the other accounts' quotas and connections");
+        var restored = CodexAccountPreferences.Read(profile, new());
+        Check(!File.Exists(Path.Combine(homeSecond, "fixture-login")) && File.Exists(Path.Combine(AccountProfiles.CodexHome(profile), "fixture-login"))
+            && File.Exists(Path.Combine(AccountProfiles.CodexHome(profile, third.Id), "fixture-login")),
+            "Official logout RPC reaches only the selected account's isolated CLI process");
+        Check(!restored.Profiles.Single(p => p.Id == second.Id).Enabled && restored.Profiles.Where(p => p.Id != second.Id).All(p => p.Enabled),
+            "Logout persists only the selected slot's connection state");
+        await ScriptAsync($"window.chrome.webview.postMessage({{action:'removeProvider',provider:'{third.Id}'}})");
+        await Task.Delay(200);
+        Check(CodexAccountPreferences.Read(profile, new()).Profiles.Single(p => p.Id == third.Id).Enabled,
+            "Hiding a Codex card preserves its login preference");
+        await ScriptAsync($"window.chrome.webview.postMessage({{action:'showProvider',provider:'{third.Id}'}})");
+        await Task.Delay(250);
+        Check(DashboardPreferences.Read(profile, new()).ProviderIds.Contains(third.Id), "Hidden saved Codex account can be restored without creating a new profile");
+        await ScriptAsync("document.querySelector('[aria-label=\"AI 추가\"]').click()");
+        await Task.Delay(250);
+        await ScriptAsync("document.querySelector('[aria-label=\"Codex 추가\"]').click()");
+        await Task.Delay(250);
+        var added = CodexAccountPreferences.Read(profile, new()).Profiles.Last().Id;
+        Check(added is not null && !CodexAccountPreferences.Read(profile, new()).Profiles.Single(p => p.Id == added).Enabled,
+            "New Codex account persists immediately but never silently adopts a login");
+        await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
+        for (var i = 0; i < 3; i++) await _window.AddCodexAccountAsync();
+        await Task.Delay(1000);
+        await AssertScriptAsync("document.querySelector('.cards').scrollHeight>document.querySelector('.cards').clientHeight && document.querySelector('footer').getBoundingClientRect().bottom<=innerHeight+2 && document.documentElement.scrollWidth<=innerWidth",
+            "Many accounts scroll inside the card while the header and footer remain reachable");
+        await CaptureAsync("multi-codex-scroll.png");
+        var savedIds = DashboardPreferences.Read(profile, new()).ProviderIds;
+        _window.Close();
+        _window = new MainWindow(profile, testMode: true, codexFactory: Factory);
+        _window.Show();
+        await WaitAsync(() => _window.Ready, "Restored multi-account React ready");
+        await _window.RefreshAsync();
+        await Task.Delay(1100);
+        Check(await ScriptAsync("document.querySelectorAll('.provider').length") == savedIds.Length.ToString(),
+            "All selected Codex cards survive application restart");
+        await AssertScriptAsync($"document.querySelector('[data-account-id=\"{second.Id}\"] .number').textContent==='—' && document.querySelector('[data-account-id=\"codex\"] .number').textContent==='88'",
+            "Restart restores logged-out and connected slots separately");
+        var ledger = new DailyUsageTracker(Path.Combine(profile, "separate-ledger"));
+        var now = DateTimeOffset.UtcNow;
+        ProviderUsage Sample(string id, double used, DateTimeOffset at) => new(id, "ready", "fixture", [new("primary", "주간", used, now.AddDays(3).ToUnixTimeSeconds())], at);
+        ledger.Observe(Sample("codex", 10, now), "first-account", now, TimeSpan.Zero);
+        ledger.Observe(Sample(second.Id, 40, now), "second-account", now, TimeSpan.Zero);
+        var firstTotal = ledger.Observe(Sample("codex", 15, now.AddMinutes(1)), "first-account", now.AddMinutes(1), TimeSpan.Zero);
+        var secondTotal = ledger.Observe(Sample(second.Id, 49, now.AddMinutes(1)), "second-account", now.AddMinutes(1), TimeSpan.Zero);
+        Check(firstTotal.Windows[0].Today?.UsedPercentagePoints == 5 && secondTotal.Windows[0].Today?.UsedPercentagePoints == 9,
+            "Observed consumption accumulates independently for accounts with the same Codex quota keys");
     }
 
     private static async Task VerifyCornerAnchorsAsync(string profile, string settings, ProviderUsage codex, ProviderUsage claude)
@@ -629,7 +775,13 @@ internal static class Program
 
     private static int RunRpcFixture()
     {
-        bool signedIn = false;
+        var home = Environment.GetEnvironmentVariable("CODEX_HOME")!;
+        var loginFile = Path.Combine(home, "fixture-login");
+        bool signedIn = File.Exists(loginFile);
+        var args = Environment.GetCommandLineArgs();
+        string Option(string name, string fallback) => Array.IndexOf(args, name) is var index && index >= 0 && index + 1 < args.Length ? args[index + 1] : fallback;
+        var email = Option("--fixture-email", "test@example.invalid");
+        var used = int.Parse(Option("--fixture-used", "8"));
         string? line;
         while ((line = Console.ReadLine()) is not null)
         {
@@ -641,19 +793,25 @@ internal static class Program
             object result = new { };
             if (method == "initialize")
             {
-                var home = Environment.GetEnvironmentVariable("CODEX_HOME")!;
                 Directory.CreateDirectory(home);
                 File.WriteAllText(Path.Combine(home, "test-environment.json"), JsonSerializer.Serialize(new { home, apiKeyInherited = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("OPENAI_API_KEY")) }));
             }
-            if (method == "account/read") result = new { account = signedIn ? new { type = "chatgpt", email = "test@example.invalid", planType = "test" } : null };
+            if (method == "account/read") result = new { account = signedIn ? new { type = "chatgpt", email, planType = "prolite" } : null };
+            if (method == "account/rateLimits/read")
+            {
+                if (File.Exists(Path.Combine(home, "fixture-fail-usage")))
+                { Console.WriteLine(JsonSerializer.Serialize(new { id = number, error = new { code = -1, message = "fixture error" } })); continue; }
+                result = new { rateLimits = new { primary = new { usedPercent = used, windowDurationMins = 10080, resetsAt = DateTimeOffset.UtcNow.AddDays(3).ToUnixTimeSeconds() }, planType = "prolite" } };
+            }
             if (method == "account/login/start")
             {
                 signedIn = true;
+                File.WriteAllText(loginFile, "signed-in");
                 result = new { loginId = "test-login", authUrl = "https://auth.openai.com/oauth/authorize" };
                 Console.WriteLine(JsonSerializer.Serialize(new { method = "account/login/completed", @params = new { loginId = "unrelated-login", success = false } }));
                 Console.WriteLine(JsonSerializer.Serialize(new { method = "account/login/completed", @params = new { loginId = "test-login", success = true } }));
             }
-            if (method is "account/logout" or "account/login/cancel") signedIn = false;
+            if (method is "account/logout" or "account/login/cancel") { signedIn = false; if (File.Exists(loginFile)) File.Delete(loginFile); }
             Console.WriteLine(JsonSerializer.Serialize(new { id = number, result }));
         }
         return 0;

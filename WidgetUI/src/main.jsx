@@ -16,6 +16,9 @@ const catalog = [
   { id: 'codex', name: 'Codex', symbol: '⌘', description: 'ChatGPT 구독 한도 · 자동 조회' },
   { id: 'claude', name: 'Claude', symbol: '✳', description: 'Claude 구독 한도 · 자동 조회' }
 ];
+const isCodex = id => id === 'codex' || id?.startsWith('codex-');
+const providerClass = id => isCodex(id) ? 'codex' : 'claude';
+const providerName = provider => provider.name ?? (isCodex(provider.id) ? 'Codex' : 'Claude');
 const measurementOptions = [{ minutes: 30, label: '30m' }, { minutes: 60, label: '1h' }, { minutes: 180, label: '3h' }, { minutes: 360, label: '6h' }, { minutes: 720, label: '12h' }, { minutes: 1440, label: '1d' }];
 const intervalOptions = [1, 5, 15, 30, 60, 180];
 const cornerOptions = [
@@ -98,7 +101,7 @@ function PlanLabel({ id, plan }) {
   const common = { free: 'Free', go: 'Go', plus: 'Plus', pro: 'Pro', max: 'Max', team: 'Team', business: 'Business', enterprise: 'Enterprise', education: 'Edu', edu: 'Edu' };
   // Codex exposes subscription tiers as raw planType values, separately from usage.
   const codex = { prolite: 'Pro x5', pro: 'Pro x20', promax: 'Pro Max' };
-  const label = (id === 'codex' ? codex[key] : null) ?? common[key] ?? plan.trim();
+  const label = (isCodex(id) ? codex[key] : null) ?? common[key] ?? plan.trim();
   return <span className="provider-plan" title={label}><span className="plan-dot" aria-hidden="true">·</span>{label}</span>;
 }
 
@@ -154,10 +157,10 @@ function ProviderCard({ provider, account, busy, now, onConnect, onMeasurements,
   const stale = provider.updatedAt && now - new Date(provider.updatedAt).getTime() > 300000;
   const value = available ? Math.max(0, Math.min(100, main.remainingPercent)) : 0;
   const low = available && value <= 20;
-  return <motion.section className={`provider ${provider.id} ${low ? 'low' : ''}`} aria-label={`${isClaude ? 'Claude' : 'Codex'} 잔여량`}
+  return <motion.section className={`provider ${providerClass(provider.id)} ${low ? 'low' : ''}`} data-account-id={provider.id} aria-label={`${providerName(provider)} 잔여량`}
     initial={reduce ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .45, delay: isClaude ? .08 : 0 }}>
     <div className="provider-head">
-      <div className="provider-brand"><span className="provider-symbol">{isClaude ? '✳' : '⌘'}</span><span className="provider-name">{isClaude ? 'Claude' : 'Codex'}<PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span></div>
+      <div className="provider-brand"><span className="provider-symbol">{isClaude ? '✳' : '⌘'}</span><span className="provider-name" title={account?.email}>{providerName(provider)}<PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span></div>
       <span className={`status-tag ${stale || provider.status === 'error' ? 'muted' : ''}`}><span className="status-dot" />{provider.status === 'ready' ? stale ? '이전 수신값' : '연결됨' : provider.status === 'loading' ? '연결 중' : provider.status === 'error' ? '연결 오류' : provider.status === 'disconnected' ? '로그인 필요' : provider.status === 'signingIn' ? '로그인 중' : '응답 대기'}</span>
     </div>
     <div className="quota-title"><span>{main ? `${main.label} 잔여량` : '사용량 잔여'} </span><span className="tiny-caption">REMAINING</span></div>
@@ -185,8 +188,8 @@ function CompactProvider({ provider, account, now, intervalMinutes, onMeasuremen
   const sub = claude ? windows.find(w => w.key === 'five_hour' || w.label === '5시간') : null;
   const available = quota => !!quota && (!quota.resetsAt || quota.resetsAt * 1000 > now);
   const valid = available(main);
-  return <div className={provider.id}>
-    <span className="compact-name">{claude ? 'Claude' : 'Codex'}<PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span>
+  return <div className={providerClass(provider.id)} data-account-id={provider.id}>
+    <span className="compact-name" title={account?.email}>{providerName(provider)}<PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span>
     <strong>{valid ? <><NumberValue value={main.remainingPercent} /><small>%</small></> : '—'}</strong>
     <div className="compact-period"><span className="compact-label">{main?.label ?? (claude ? '주간' : '수신 대기')}</span><CompactReset quota={main} label={main?.label ?? (claude ? '주간' : '한도')} now={now} /></div>
     {claude ? <div className="compact-subquota" aria-label="Claude 5시간 잔여량"><div className="compact-period"><span>5시간</span><CompactReset quota={sub} label="5시간" now={now} /></div><span className="compact-subvalue">{available(sub) ? <><NumberValue value={sub.remainingPercent} />%</> : '—'}</span></div> : <div className="compact-subquota-slot" aria-hidden="true" />}
@@ -196,26 +199,32 @@ function CompactProvider({ provider, account, now, intervalMinutes, onMeasuremen
 
 function Accounts({ state, onAdd }) {
   const locked = state.busy || state.authBusy;
-  if (!state.providers.length) return <div className="account-empty"><p>연결할 AI를 먼저 추가하세요.</p><button className="account-primary" onClick={onAdd}><Plus size={13} />AI 추가</button></div>;
+  const accounts = (state.accounts ?? initial.accounts).filter(account => state.providers.some(provider => provider.id === account.id)
+    || isCodex(account.id) && (account.id !== 'codex' || account.status === 'connected'));
+  if (!accounts.length) return <div className="account-empty"><p>연결할 AI를 먼저 추가하세요.</p><button className="account-primary" onClick={onAdd}><Plus size={13} />AI 추가</button></div>;
   return <div className="accounts-content">
-    <p className="account-intro">각 서비스의 공식 로그인으로 계정을 선택하세요. 위젯 전용 로그인은 기존 CLI 로그인과 분리됩니다.</p>
-    {(state.accounts ?? initial.accounts).filter(account => state.providers.some(provider => provider.id === account.id)).map(account => {
+    <p className="account-intro">각 계정은 공식 로그인으로 연결합니다. Codex 계정마다 로그인과 사용량 기록을 따로 보관합니다.</p>
+    <button className="account-add" aria-label="Codex 계정 추가" disabled={locked || !native} onClick={() => send('addCodexAccount')}><Plus size={13} />Codex 계정 추가</button>
+    {accounts.map(account => {
       const claude = account.id === 'claude';
       const suffix = claude ? 'Claude' : 'Codex';
+      const name = account.name ?? (claude ? 'Claude Code' : 'Codex');
+      const visible = state.providers.some(provider => provider.id === account.id);
       const connected = account.status === 'connected';
       const signing = account.status === 'signingIn';
-      return <section className={`account-box ${account.id}`} key={account.id} aria-label={`${suffix} 계정 연결`}>
-        <div className="account-box-head"><strong>{claude ? 'Claude Code' : 'Codex'}</strong><span>{account.source === 'system' ? '기존 CLI 공유' : '위젯 전용'}</span></div>
+      return <section className={`account-box ${providerClass(account.id)}`} data-account-id={account.id} key={account.id} aria-label={`${name} 계정 연결`}>
+        <div className="account-box-head"><strong>{name}</strong><span>{account.source === 'system' ? '기존 CLI 공유' : '위젯 전용'}</span></div>
         <div className="account-email" title={account.email}>{account.email ?? (signing ? '공식 로그인 화면에서 진행 중…' : connected ? '로그인된 계정' : '연결된 계정 없음')}</div>
         {account.message && <p className="account-message">{account.message}</p>}
         {signing ? <>
           <p>{claude ? '공식 Claude Code 창과 브라우저에서 직접 완료해주세요.' : '브라우저에서 ChatGPT 로그인을 직접 완료해주세요.'}</p>
           <div className="account-buttons"><button className="account-secondary" onClick={() => send('cancelLogin')}>로그인 취소</button>{!claude && <button className="account-secondary" onClick={() => send('reopenLogin')}>브라우저 다시 열기</button>}</div>
         </> : <>
-          <button className="account-primary" disabled={locked || !native} onClick={() => send(`login${suffix}`)}><ArrowUpRight size={13} />{connected ? '다른 계정으로 로그인' : claude ? '공식 Claude Code로 로그인' : 'ChatGPT로 로그인'}</button>
-          <div className="account-buttons"><button className="account-secondary" title={claude ? '기존 Claude Code 계정을 공유하고 상태줄 수신기를 설치합니다. 설정은 백업합니다.' : '현재 Codex CLI에 로그인된 계정을 사용합니다.'} disabled={locked || !native || (connected && account.source === 'system')} onClick={() => send(`useExisting${suffix}`)}>기존 CLI 계정 사용</button>{connected && <button className="account-secondary" disabled={locked || !native} onClick={() => send(`logout${suffix}`)}>{account.source === 'system' ? '연결 해제' : '로그아웃'}</button>}</div>
+          <button className="account-primary" disabled={locked || !native} onClick={() => send(`login${suffix}`, { accountId: account.id })}><ArrowUpRight size={13} />{connected ? '다른 계정으로 로그인' : claude ? '공식 Claude Code로 로그인' : 'ChatGPT로 로그인'}</button>
+          <div className="account-buttons">{(claude || account.id === 'codex') && <button className="account-secondary" title={claude ? '기존 Claude Code 계정을 공유하고 상태줄 수신기를 설치합니다. 설정은 백업합니다.' : '현재 Codex CLI에 로그인된 계정을 사용합니다.'} disabled={locked || !native || (connected && account.source === 'system')} onClick={() => send(`useExisting${suffix}`, { accountId: account.id })}>기존 CLI 계정 사용</button>}{connected && <button className="account-secondary" disabled={locked || !native} onClick={() => send(`logout${suffix}`, { accountId: account.id })}>{account.source === 'system' ? '연결 해제' : '로그아웃'}</button>}</div>
           {claude && connected && <button className="account-launch" disabled={locked || !native} onClick={() => send('launchClaudeCode')}>이 계정으로 Claude Code 열기<ArrowUpRight size={12} /></button>}
         </>}
+        {!visible && <button className="account-secondary account-restore" disabled={locked} onClick={() => send('showProvider', { provider: account.id })}>카드 다시 표시</button>}
         {claude && <p className="account-caption">연결 직후와 이후 5분마다 사용량을 조회합니다. Claude에게 메시지를 보내지 않습니다. 자동 조회는 최신 Claude Code가 필요하며, 응답 후 상태줄 수신도 유지합니다.</p>}
       </section>;
     })}
@@ -230,10 +239,13 @@ function EmptyDashboard({ onAdd }) {
 function ProviderPicker({ state, onAdd, onRemove }) {
   return <div className="provider-picker"><p>대시보드에 표시할 AI를 선택하세요.</p><div className="provider-catalog">{catalog.map(service => {
     const added = state.providers.some(provider => provider.id === service.id);
-    return <button key={service.id} className={`catalog-option ${service.id} ${added ? 'added' : ''}`} aria-label={`${service.name} 추가`} disabled={added || state.busy || state.authBusy} onClick={() => onAdd(service.id)}>
-      <span className="catalog-symbol">{service.symbol}</span><span className="catalog-copy"><strong>{service.name}</strong><small>{service.description}</small></span>{added ? <Check size={14} /> : <Plus size={14} />}
+    const singleAdded = service.id !== 'codex' && added;
+    return <button key={service.id} className={`catalog-option ${service.id} ${singleAdded ? 'added' : ''}`} aria-label={`${service.name} 추가`} disabled={singleAdded || state.busy || state.authBusy} onClick={() => onAdd(service.id)}>
+      <span className="catalog-symbol">{service.symbol}</span><span className="catalog-copy"><strong>{service.id === 'codex' && added ? 'Codex 계정 추가' : service.name}</strong><small>{service.id === 'codex' ? '계정별 구독 한도 · 여러 계정 추가 가능' : service.description}</small></span>{singleAdded ? <Check size={14} /> : <Plus size={14} />}
     </button>;
-  })}</div>{state.providers.length > 0 && <div className="selected-providers"><div className="selected-title">표시 중 <span>{state.providers.length}개</span></div>{state.providers.map(provider => <div className="selected-provider" key={provider.id}><span>{catalog.find(service => service.id === provider.id)?.name ?? provider.id}</span><button aria-label={`${provider.id === 'codex' ? 'Codex' : 'Claude'} 카드 제거`} disabled={state.busy || state.authBusy} onClick={() => onRemove(provider.id)}>제거<X size={11} /></button></div>)}<p className="picker-hint">카드를 제거해도 로그인은 유지됩니다.</p></div>}</div>;
+  })}</div>{state.providers.length > 0 && <div className="selected-providers"><div className="selected-title">표시 중 <span>{state.providers.length}개</span></div>{state.providers.map(provider => <div className="selected-provider" key={provider.id}><span title={state.accounts?.find(account => account.id === provider.id)?.email}>{providerName(provider)}</span><button aria-label={`${providerName(provider)} 카드 제거`} disabled={state.busy || state.authBusy} onClick={() => onRemove(provider.id)}>제거<X size={11} /></button></div>)}<p className="picker-hint">카드를 제거해도 로그인은 유지됩니다.</p></div>}
+    {(state.accounts ?? []).filter(account => isCodex(account.id) && (account.id !== 'codex' || account.status === 'connected') && !state.providers.some(provider => provider.id === account.id)).map(account => <div className="selected-provider" key={account.id}><span>{account.name ?? 'Codex'}</span><button disabled={state.busy || state.authBusy} onClick={() => send('showProvider', { provider: account.id })}>다시 표시<Plus size={11} /></button></div>)}
+  </div>;
 }
 
 function MeasurementSettings({ state, onChange }) {
@@ -342,7 +354,14 @@ function App() {
   };
   const addProvider = id => {
     if (native) send('addProvider', { provider: id });
-    else setState(s => ({ ...s, providers: s.providers.some(p => p.id === id) ? s.providers : [...s.providers, preview ? previewState.providers.find(p => p.id === id) : { id, status: 'disconnected', message: '계정을 연결해주세요.', windows: [] }] }));
+    else setState(s => {
+      const added = s.providers.some(p => p.id === id);
+      if (added && id !== 'codex') return s;
+      const accountId = added ? `codex-${crypto.randomUUID().replaceAll('-', '')}` : id;
+      const name = added ? `Codex ${s.accounts.filter(a => isCodex(a.id)).length + 1}` : id === 'codex' ? 'Codex' : 'Claude';
+      const provider = { ...(preview ? previewState.providers.find(p => p.id === id) : { status: 'disconnected', message: '계정을 연결해주세요.', windows: [] }), id: accountId, name };
+      return { ...s, providers: [...s.providers, provider], accounts: s.accounts.some(a => a.id === accountId) ? s.accounts : [...s.accounts, { id: accountId, name, status: preview ? 'connected' : 'disconnected', source: 'widget' }] };
+    });
   };
   const removeProvider = id => {
     if (native) send('removeProvider', { provider: id });
@@ -354,7 +373,7 @@ function App() {
     onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); action('toggleLogo'); } }}
     initial={transitionReduce ? false : { opacity: 0 }} animate={{ opacity: changing ? 0 : 1 }} exit={{ opacity: 0, transition: { duration: transitionReduce ? 0 : .08 } }} transition={{ duration: transitionReduce ? 0 : .08 }}>
     <Triangle connected={allConnected} active={!logoMoving && (state.busy || state.authBusy)} rotation={logoRotation} />
-  </motion.div> : <motion.div key={`card-${mode}`} data-view={mode} className="widget" style={{ ...(native ? { width: 302 } : {}), ...(menu ? { minHeight: menuPage === 'accounts' ? 510 : menuPage === 'measurement' ? 520 : menuPage === 'providers' ? state.providers.length === 0 ? 310 : 410 + (state.providers.length - 1) * 30 : 520 } : {}) }}
+  </motion.div> : <motion.div key={`card-${mode}`} data-view={mode} className="widget" style={{ '--card-max-height': `${(state.maxCardHeight ?? 880) - 2}px`, ...(native ? { width: 302 } : {}), ...(menu ? { minHeight: Math.min((state.maxCardHeight ?? 880) - 2, menuPage === 'accounts' ? 510 : menuPage === 'measurement' ? 520 : menuPage === 'providers' ? state.providers.length === 0 ? 310 : 410 + (state.providers.length - 1) * 30 : 520) } : {}) }}
     initial={transitionReduce ? false : { opacity: 0, y: 4 }} animate={{ opacity: changing ? 0 : 1, y: changing ? 4 : 0 }} exit={{ opacity: 0, transition: { duration: transitionReduce ? 0 : .08 } }}
     transition={{ duration: transitionReduce ? 0 : changing ? .08 : .13, ease: [.22, 1, .36, 1] }}>
     <header className="header">

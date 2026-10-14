@@ -4,13 +4,19 @@ using System.Text.Json;
 
 namespace UsageWidget;
 
-internal sealed record AccountConnection(string Id, string Source, string Status, string? Email = null, string? Plan = null, string? Message = null);
+internal sealed record AccountConnection(string Id, string Source, string Status, string? Email = null, string? Plan = null, string? Message = null, string? Name = null);
 internal sealed record ConnectionPreferences(bool UseSystemCodex = false, bool UseSystemClaude = false,
     bool CodexEnabled = false, bool ClaudeEnabled = false);
 
 internal static class AccountProfiles
 {
-    internal static string CodexHome(string dataDirectory) => Path.Combine(dataDirectory, "Accounts", "Codex");
+    internal static string CodexHome(string dataDirectory, string id = "codex")
+    {
+        if (!CodexAccountPreferences.IsCodexId(id)) throw new ArgumentException("Invalid Codex profile ID.", nameof(id));
+        // Preserve the original account directory during upgrades. New slots never reuse its credentials.
+        return id == "codex" ? Path.Combine(dataDirectory, "Accounts", "Codex")
+            : Path.Combine(dataDirectory, "Accounts", "CodexProfiles", id[6..]);
+    }
     internal static string ClaudeHome(string dataDirectory) => Path.Combine(dataDirectory, "Accounts", "Claude");
     internal static ConnectionPreferences ReadPreferences(string dataDirectory)
     {
