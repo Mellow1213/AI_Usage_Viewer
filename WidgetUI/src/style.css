@@ -209,3 +209,12 @@ footer { height: 34px; }
 .account-nickname button { padding: 7px 9px; border: 1px solid #c4e8a122; border-radius: 6px; background: #c4e8a10b; color: #c4e8a1; font-size: 9px; }
 .account-box-head > strong, .selected-provider > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-name { display: inline-flex; }
+.account-label { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; max-width: 100%; overflow: hidden; }
+.account-service { flex: 0 0 auto; }
+.account-alias-dot { flex: 0 0 auto; color: #788375; font-weight: 400; }
+.account-alias { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #a3ac9e; font-weight: 400; font-size: .9em; }
+.compact-name .account-label { flex: 1 1 auto; }
+.compact-name .account-alias { font-size: 9px; }
+.compact-name .provider-plan { flex: 0 4 auto; }
+.account-box-head > strong { display: flex; }
+.selected-provider > span { display: flex; }

@@ -19,8 +19,14 @@ const catalog = [
 const isCodex = id => id === 'codex' || id?.startsWith('codex-');
 const serviceOf = item => item.service ?? catalog.find(service => item.id === service.id || item.id?.startsWith(`${service.id}-`))?.id;
 const providerClass = provider => serviceOf(provider) ?? 'unknown';
-const providerName = provider => provider.name ?? catalog.find(service => service.id === serviceOf(provider))?.name ?? 'AI';
+const defaultName = provider => provider.defaultName ?? provider.name ?? catalog.find(service => service.id === serviceOf(provider))?.name ?? 'AI';
+const accountAlias = provider => provider.nickname ?? (provider.defaultName && provider.name !== provider.defaultName ? provider.name : null);
+const providerName = provider => accountAlias(provider) ? `${defaultName(provider)} · ${accountAlias(provider)}` : defaultName(provider);
 const savedAccount = account => account.enabled || account.id !== serviceOf(account) || account.status === 'connected';
+function AccountLabel({ account }) {
+  const alias = accountAlias(account);
+  return <span className="account-label"><span className="account-service">{defaultName(account)}</span>{alias && <><span className="account-alias-dot" aria-hidden="true">·</span><span className="account-alias" title={alias}>{alias}</span></>}</span>;
+}
 const measurementOptions = [{ minutes: 30, label: '30m' }, { minutes: 60, label: '1h' }, { minutes: 180, label: '3h' }, { minutes: 360, label: '6h' }, { minutes: 720, label: '12h' }, { minutes: 1440, label: '1d' }];
 const intervalOptions = [1, 5, 15, 30, 60, 180];
 const cornerOptions = [
@@ -163,7 +169,7 @@ function ProviderCard({ provider, account, busy, now, onConnect, onMeasurements,
   return <motion.section className={`provider ${providerClass(provider)} ${low ? 'low' : ''}`} data-account-id={provider.id} aria-label={`${providerName(provider)} 잔여량`}
     initial={reduce ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .45, delay: isClaude ? .08 : 0 }}>
     <div className="provider-head">
-      <div className="provider-brand"><span className="provider-symbol">{service?.symbol ?? '✦'}</span><span className="provider-name" title={[provider.defaultName, account?.email].filter(Boolean).join(' · ')}>{providerName(provider)}<PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span></div>
+      <div className="provider-brand"><span className="provider-symbol">{service?.symbol ?? '✦'}</span><span className="provider-name" title={[providerName(provider), account?.email].filter(Boolean).join(' · ')}><AccountLabel account={provider} /><PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span></div>
       <span className={`status-tag ${stale || provider.status === 'error' ? 'muted' : ''}`}><span className="status-dot" />{provider.status === 'ready' ? stale ? '이전 수신값' : '연결됨' : provider.status === 'loading' ? '연결 중' : provider.status === 'error' ? '연결 오류' : provider.status === 'disconnected' ? '로그인 필요' : provider.status === 'signingIn' ? '로그인 중' : '응답 대기'}</span>
     </div>
     <div className="quota-title"><span>{main ? `${main.label} 잔여량` : '사용량 잔여'} </span><span className="tiny-caption">REMAINING</span></div>
@@ -192,7 +198,7 @@ function CompactProvider({ provider, account, now, intervalMinutes, onMeasuremen
   const available = quota => !!quota && (!quota.resetsAt || quota.resetsAt * 1000 > now);
   const valid = available(main);
   return <div className={providerClass(provider)} data-account-id={provider.id}>
-    <span className="compact-name" title={[provider.defaultName, account?.email].filter(Boolean).join(' · ')}>{providerName(provider)}<PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span>
+    <span className="compact-name" title={[providerName(provider), account?.email].filter(Boolean).join(' · ')}><AccountLabel account={provider} /><PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span>
     <strong>{valid ? <><NumberValue value={main.remainingPercent} /><small>%</small></> : '—'}</strong>
     <div className="compact-period"><span className="compact-label">{main?.label ?? (claude ? '주간' : '수신 대기')}</span><CompactReset quota={main} label={main?.label ?? (claude ? '주간' : '한도')} now={now} /></div>
     {claude ? <div className="compact-subquota" aria-label="Claude 5시간 잔여량"><div className="compact-period"><span>5시간</span><CompactReset quota={sub} label="5시간" now={now} /></div><span className="compact-subvalue">{available(sub) ? <><NumberValue value={sub.remainingPercent} />%</> : '—'}</span></div> : <div className="compact-subquota-slot" aria-hidden="true" />}
@@ -229,7 +235,7 @@ function Accounts({ state, onAdd, onRestore, onRename }) {
       const connected = account.status === 'connected';
       const signing = account.status === 'signingIn';
       return <section className={`account-box ${providerClass(account)}`} data-account-id={account.id} key={account.id} aria-label={`${name} 계정 연결`}>
-        <div className="account-box-head"><strong title={name}>{name}</strong><span>{account.nickname ? `${account.defaultName ?? service?.name} · ` : ''}{account.source === 'system' ? '기존 CLI 공유' : '위젯 전용'}</span></div>
+        <div className="account-box-head"><strong title={name}><AccountLabel account={account} /></strong><span>{account.source === 'system' ? '기존 CLI 공유' : '위젯 전용'}</span></div>
         <div className="account-email" title={account.email}>{account.email ?? (signing ? '공식 로그인 화면에서 진행 중…' : connected ? '로그인된 계정' : !visible && account.enabled ? '저장된 계정 · 카드 표시 후 연결 확인' : '연결된 계정 없음')}</div>
         <AccountNickname account={account} disabled={locked} onSave={onRename} />
         {account.message && <p className="account-message">{account.message}</p>}
@@ -259,8 +265,8 @@ function ProviderPicker({ state, onAdd, onRemove, onRestore }) {
     return <button key={service.id} className={`catalog-option ${service.id}`} aria-label={`${service.name} 추가`} disabled={state.busy || state.authBusy} onClick={() => onAdd(service.id)}>
       <span className="catalog-symbol">{service.symbol}</span><span className="catalog-copy"><strong>{added ? `${service.name} 계정 추가` : service.name}</strong><small>{service.description} · 여러 계정</small></span><Plus size={14} />
     </button>;
-  })}</div>{state.providers.length > 0 && <div className="selected-providers"><div className="selected-title">표시 중 <span>{state.providers.length}개</span></div>{state.providers.map(provider => <div className="selected-provider" key={provider.id}><span title={state.accounts?.find(account => account.id === provider.id)?.email}>{providerName(provider)}</span><button aria-label={`${providerName(provider)} 카드 제거`} disabled={state.busy || state.authBusy} onClick={() => onRemove(provider.id)}>제거<X size={11} /></button></div>)}<p className="picker-hint">카드를 제거해도 로그인은 유지됩니다.</p></div>}
-    {(state.accounts ?? []).filter(account => savedAccount(account) && !state.providers.some(provider => provider.id === account.id)).map(account => <div className="selected-provider" key={account.id}><span>{providerName(account)}</span><button disabled={state.busy || state.authBusy} onClick={() => onRestore(account.id)}>다시 표시<Plus size={11} /></button></div>)}
+  })}</div>{state.providers.length > 0 && <div className="selected-providers"><div className="selected-title">표시 중 <span>{state.providers.length}개</span></div>{state.providers.map(provider => <div className="selected-provider" key={provider.id}><span title={state.accounts?.find(account => account.id === provider.id)?.email}><AccountLabel account={provider} /></span><button aria-label={`${providerName(provider)} 카드 제거`} disabled={state.busy || state.authBusy} onClick={() => onRemove(provider.id)}>제거<X size={11} /></button></div>)}<p className="picker-hint">카드를 제거해도 로그인은 유지됩니다.</p></div>}
+    {(state.accounts ?? []).filter(account => savedAccount(account) && !state.providers.some(provider => provider.id === account.id)).map(account => <div className="selected-provider" key={account.id}><span><AccountLabel account={account} /></span><button disabled={state.busy || state.authBusy} onClick={() => onRestore(account.id)}>다시 표시<Plus size={11} /></button></div>)}
   </div>;
 }
 
@@ -390,7 +396,7 @@ function App() {
       const account = s.accounts.find(a => a.id === id);
       if (!account) return s;
       const source = preview ? previewState.providers.find(p => p.id === serviceOf(account)) : { status: 'disconnected', message: '계정을 연결해주세요.', windows: [] };
-      return { ...s, providers: [...s.providers, { ...source, id, service: serviceOf(account), name: account.name }] };
+      return { ...s, providers: [...s.providers, { ...source, id, service: serviceOf(account), name: account.name, defaultName: account.defaultName, nickname: account.nickname }] };
     });
   };
   const renameAccount = (id, nickname) => {
