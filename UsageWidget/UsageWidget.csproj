@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RollForward>Major</RollForward>
+    <AssemblyName>AIUsageWidget</AssemblyName>
+    <ApplicationIcon>Assets\usage-widget.ico</ApplicationIcon>
+    <!-- Debug symbols stay in local build output; public packages must not contain developer source paths. -->
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <!-- Keep machine-specific source paths out of compiler debug references as well. -->
+    <PathMap>$(MSBuildProjectDirectory)=/_/UsageWidget</PathMap>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+    <Content Include="../WidgetUI/dist/**/*" Link="Web/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Bridge/claude-statusline.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <InternalsVisibleTo Include="UsageWidget.Verification" />
+    <Resource Include="Assets/usage-widget.ico" />
+    <Resource Include="Assets/usage-widget.png" />
+  </ItemGroup>
+  <Target Name="RemoveStalePublishSymbols" AfterTargets="Publish" Condition="'$(PublishDir)' != '' and Exists('$(PublishDir)')">
+    <!-- Publishing into an existing folder does not remove PDB files from previous releases. -->
+    <ItemGroup>
+      <StalePublishSymbol Include="$(PublishDir)**/*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(StalePublishSymbol)" />
+  </Target>
+</Project>
