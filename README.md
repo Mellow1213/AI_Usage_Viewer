@@ -162,11 +162,14 @@ AI를 추가하면 로그인 전에도 선택을 즉시 저장합니다. 다음 
 ```powershell
 .\build-widget.ps1 -RestoreUI
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\widget-verification
+node --test .\WidgetUI\src\displayClock.test.js
 ```
 
 실제 Codex 계정 조회까지 검증하려면 마지막에 `--live`를 추가합니다. 검증에서는 별도 Claude 설정 파일을 사용하며 사용자 설정을 바꾸지 않습니다. 모든 UI 스크린샷의 예시 값은 검증용이며, 앱은 실제 수신값만 표시합니다.
 
 React 개발 서버: `WidgetUI`에서 `npm run dev`. 브라우저에서 `?preview=1`을 붙이면 **예시 데이터라는 표시가 있는 디자인 미리보기**를 볼 수 있습니다. 데스크톱 앱의 데이터 대체 기능으로 사용하지 않습니다.
+
+시간 표시는 카드별로 분 표시·수신 경과 시간·리셋 만료가 바뀌는 시점에만 갱신합니다. 로고만 표시할 때는 카드 시계를 해제하며, 같은 상태의 반복 전송도 생략합니다. 사용량 조회·집계 주기와 물결·회전·펼치기 애니메이션은 유지합니다. 변경 전후 CPU·메모리 측정 조건과 결과는 [성능 비교 기록](docs/performance.md)에 정리했습니다.
 
 공개 배포에는 위젯의 publish 폴더만 포함합니다. 프로젝트 설정으로 `.pdb` 복사를 막고, 같은 폴더에 이전 빌드의 `.pdb`가 남아 있으면 publish 완료 때 제거합니다. 컴파일러의 소스 경로도 고정된 가상 경로로 매핑합니다. 로컬 개발용 심볼은 `bin`에 유지하며 사용자 프로필·계정 파일은 배포하지 않습니다.
 

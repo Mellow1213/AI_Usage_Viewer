@@ -1,0 +1,60 @@
+{
+  "logicalProcessors": 16,
+  "warmupSeconds": 10,
+  "sampleSeconds": 30,
+  "scope": "WPF host and its entire WebView2 process group; fixed connected fixtures; no AI CLI or network; unchanged snapshots every two seconds; animations enabled",
+  "measurements": [
+    {
+      "result": {
+        "mode": "Expanded",
+        "seconds": 30.5059315,
+        "cpuSeconds": 0.5625,
+        "cpuPercent": 0.1152439813221242,
+        "privateResidentMB": 118.60825892857143,
+        "privateCommitMB": 203.59207589285714,
+        "rendererTaskSeconds": 0.033613000000000004,
+        "processCount": 6
+      },
+      "messages": 0
+    },
+    {
+      "result": {
+        "mode": "Logo",
+        "seconds": 30.4871998,
+        "cpuSeconds": 0.59375,
+        "cpuPercent": 0.12172116574641927,
+        "privateResidentMB": 113.84151785714286,
+        "privateCommitMB": 199.95647321428572,
+        "rendererTaskSeconds": 0.032469999999999985,
+        "processCount": 6
+      },
+      "messages": 0
+    },
+    {
+      "result": {
+        "mode": "Logo",
+        "seconds": 30.4433265,
+        "cpuSeconds": 0.46875,
+        "cpuPercent": 0.0962341451089453,
+        "privateResidentMB": 113.31808035714286,
+        "privateCommitMB": 199.19419642857142,
+        "rendererTaskSeconds": 0.027183999999999986,
+        "processCount": 6
+      },
+      "messages": 0
+    },
+    {
+      "result": {
+        "mode": "Expanded",
+        "seconds": 30.4332205,
+        "cpuSeconds": 0.453125,
+        "cpuPercent": 0.09305723165249633,
+        "privateResidentMB": 121.24441964285714,
+        "privateCommitMB": 208.42410714285714,
+        "rendererTaskSeconds": 0.032196999999999976,
+        "processCount": 6
+      },
+      "messages": 0
+    }
+  ]
+}

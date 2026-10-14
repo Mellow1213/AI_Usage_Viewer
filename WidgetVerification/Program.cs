@@ -25,7 +25,9 @@ internal static class Program
             string? error = null;
             try
             {
-                if (args.Contains("--multi-ai-only")) await VerifyMultipleAiAsync();
+                if (args.Contains("--performance-only")) await MeasurePerformanceAsync();
+                else if (args.Contains("--performance-checks-only")) await VerifyPerformanceChangesAsync();
+                else if (args.Contains("--multi-ai-only")) await VerifyMultipleAiAsync();
                 else if (args.Contains("--multi-codex-only")) await VerifyMultipleCodexAsync();
                 else await VerifyAsync(args.Contains("--live"));
                 _exitCode = 0;
@@ -40,6 +42,112 @@ internal static class Program
         };
         app.Run();
         return _exitCode;
+    }
+
+    private static async Task VerifyPerformanceChangesAsync()
+    {
+        var profile = Path.Combine(_output, "profile-" + Guid.NewGuid().ToString("N"));
+        WidgetStorage.Write(Path.Combine(profile, "dashboard.json"), new DashboardPreferences(["codex", "claude"]));
+        var settings = Path.Combine(profile, "claude-settings.json");
+        File.WriteAllText(settings, "{}");
+        _window = new MainWindow(profile, testMode: true, claudeSettings: settings);
+        _window.Show();
+        await WaitAsync(() => _window.Ready, "Optimization checks ready");
+        // Production minification renames callbacks. Track long-lived display
+        // timers by duration; animation/transition timers are shorter than 1s.
+        await ScriptAsync("window.__clockTimers=new Set(); window.__messages=0; window.addEventListener('usage-state',()=>window.__messages++); const originalTimeout=window.setTimeout; const originalClear=window.clearTimeout; window.setTimeout=(callback,delay,...args)=>{let id;const clock=delay>1000&&delay<=60000;id=originalTimeout(()=>{if(clock)window.__clockTimers.delete(id);callback(...args)},delay);if(clock)window.__clockTimers.add(id);return id}; window.clearTimeout=id=>{window.__clockTimers.delete(id);originalClear(id)}");
+        var now = DateTimeOffset.UtcNow;
+        var codex = new ProviderUsage("codex", "ready", "계정 사용량", [new("primary", "주간", 8, now.AddDays(3).ToUnixTimeSeconds())], now, "prolite");
+        var claude = new ProviderUsage("claude", "ready", "Claude 사용량 조회", [new("five_hour", "5시간", 36, now.AddHours(2).ToUnixTimeSeconds()), new("seven_day", "주간", 62, now.AddDays(2).ToUnixTimeSeconds())], now);
+        _window.SetFixture(codex, claude);
+        await Task.Delay(800);
+        await AssertScriptAsync("window.__clockTimers.size===2", "Visible cards own their time clocks without an App-wide interval");
+        await ScriptAsync("window.__messages=0");
+        var publish = typeof(MainWindow).GetMethod("Publish", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        for (var i = 0; i < 4; i++) { publish.Invoke(_window, [false]); await Task.Delay(80); }
+        await AssertScriptAsync("window.__messages===0", "Identical quota snapshots produce no native-to-React messages");
+        _window.SetFixture(codex with { UpdatedAt = now.AddMilliseconds(1) }, claude);
+        await Task.Delay(100);
+        await AssertScriptAsync("window.__messages===1", "A fresh source timestamp is delivered even when quota percentages are unchanged");
+        await ScriptAsync("window.__messages=0; window.chrome.webview.postMessage({action:'pin'})");
+        await Task.Delay(120);
+        await AssertScriptAsync("window.__messages===1", "Non-quota state changes still reach React");
+        await ScriptAsync("window.chrome.webview.postMessage({action:'toggleLogo'})");
+        await WaitAsync(() => _window.ViewMode == WidgetViewMode.Logo && !_window.IsResizing, "Logo settled");
+        await Task.Delay(700);
+        await AssertScriptAsync("window.__clockTimers.size===0 && document.querySelector('.logo-shell .triangle').classList.contains('waving')", "Logo mode cancels all card clocks while retaining the idle ripple");
+        await ScriptAsync("window.__messages=0");
+        for (var i = 0; i < 4; i++) { publish.Invoke(_window, [false]); await Task.Delay(80); }
+        await AssertScriptAsync("window.__messages===0", "Idle logo does not receive duplicate snapshots");
+        _window.SetFixture(codex, claude, busy: true);
+        await Task.Delay(500);
+        await AssertScriptAsync("document.querySelector('.logo-shell .triangle').classList.contains('syncing') && document.querySelector('.logo-shell .triangle').style.transform.includes('rotate')", "Synchronization keeps the faster wave and rotating logo");
+        _window.SetFixture(codex, claude);
+        await ScriptAsync("window.chrome.webview.postMessage({action:'toggleLogo'})");
+        await WaitAsync(() => _window.ViewMode == WidgetViewMode.Expanded && !_window.IsResizing, "Card restored");
+        await Task.Delay(700);
+        await AssertScriptAsync("window.__clockTimers.size===2 && document.querySelector('.codex .number').textContent==='92'", "Restoring cards resumes their clocks and retains quota values");
+        // Native polling is stopped by SetFixture: these changes must come from
+        // the local display clock, not from a new server snapshot.
+        var boundary = DateTimeOffset.UtcNow;
+        _window.SetFixture(codex with { UpdatedAt = boundary.AddSeconds(-59) }, claude);
+        await Task.Delay(1600);
+        await AssertScriptAsync("document.querySelector('.codex .card-foot').textContent.includes('1분 전 수신')", "Receipt age updates at its boundary without a native message");
+        boundary = DateTimeOffset.UtcNow;
+        _window.SetFixture(codex with { Windows = [new("primary", "주간", 8, boundary.AddSeconds(3).ToUnixTimeSeconds())], UpdatedAt = boundary }, claude);
+        await Task.Delay(3400);
+        await AssertScriptAsync("document.querySelector('.codex .reset').textContent.includes('초기화됨') && document.querySelector('.codex .meter').getAttribute('aria-valuenow')===null", "Quota expires promptly without a native message or one-second App timer");
+        await ScriptAsync("window.__messages=0; window.chrome.webview.postMessage({action:'ready'})");
+        await Task.Delay(120);
+        await AssertScriptAsync("window.__messages>=1", "A new ready handshake always receives full state");
+    }
+
+    private static async Task MeasurePerformanceAsync()
+    {
+        var profile = Path.Combine(_output, "profile-" + Guid.NewGuid().ToString("N"));
+        WidgetStorage.Write(Path.Combine(profile, "dashboard.json"), new DashboardPreferences(["codex", "claude"]));
+        var settings = Path.Combine(profile, "claude-settings.json");
+        File.WriteAllText(settings, "{}");
+        _window = new MainWindow(profile, testMode: true, claudeSettings: settings);
+        _window.Show();
+        await WaitAsync(() => _window.Ready, "Benchmark ready");
+        var now = DateTimeOffset.UtcNow;
+        _window.SetFixture(new("codex", "ready", "계정 사용량", [new("primary", "주간", 8, now.AddDays(3).ToUnixTimeSeconds())], now, "prolite"),
+            new("claude", "ready", "Claude 사용량 조회", [new("five_hour", "5시간", 36, now.AddHours(2).ToUnixTimeSeconds()), new("seven_day", "주간", 62, now.AddDays(2).ToUnixTimeSeconds())], now));
+        // Simulate unchanged source snapshots at the real host's two-second cadence.
+        // Isolated fixtures exclude login/network/CLI variability from the UI comparison.
+        var publish = typeof(MainWindow).GetMethod("Publish", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var polling = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        polling.Tick += (_, _) => publish.Invoke(_window, publish.GetParameters().Length == 0 ? null : [false]);
+        polling.Start();
+        await ScriptAsync("window.__benchmarkMessages=0; window.addEventListener('usage-state',()=>window.__benchmarkMessages++)");
+        await _window.WebView!.CallDevToolsProtocolMethodAsync("Performance.enable", "{}");
+        var measurements = new List<object>();
+        try
+        {
+            // Reverse the second round to expose warm-up/order effects.
+            foreach (var mode in new[] { WidgetViewMode.Expanded, WidgetViewMode.Logo, WidgetViewMode.Logo, WidgetViewMode.Expanded })
+            {
+                if (_window.ViewMode != mode)
+                    await ScriptAsync("window.chrome.webview.postMessage({action:'toggleLogo'})");
+                await WaitAsync(() => _window.ViewMode == mode && !_window.IsResizing, "Benchmark mode settled");
+                await Task.Delay(10000);
+                await ScriptAsync("window.__benchmarkMessages=0");
+                Console.WriteLine($"MEASURING {mode}: 30 seconds");
+                var result = await PerformanceMeasurement.MeasureAsync(_window.WebView, mode.ToString(), 30);
+                var messages = JsonSerializer.Deserialize<int>(await ScriptAsync("window.__benchmarkMessages"));
+                measurements.Add(new { result, messages });
+                Console.WriteLine(JsonSerializer.Serialize(new { result, messages }));
+            }
+        }
+        finally { polling.Stop(); }
+        WidgetStorage.Write(Path.Combine(_output, "performance.json"), new
+        {
+            logicalProcessors = Environment.ProcessorCount, warmupSeconds = 10, sampleSeconds = 30,
+            scope = "WPF host and its entire WebView2 process group; fixed connected fixtures; no AI CLI or network; unchanged snapshots every two seconds; animations enabled",
+            measurements
+        });
+        Check(measurements.Count == 4, "Two expanded and two logo performance samples completed");
     }
 
     private static async Task VerifyAsync(bool live)
@@ -243,6 +351,7 @@ internal static class Program
         Check(resizeFrames.All(frame => frame.ViewportFrozen)
             && resizeFrames.Max(frame => frame.ViewportHeight) - resizeFrames.Min(frame => frame.ViewportHeight) < .1,
             "Hidden card keeps one fixed WebView viewport throughout the native fold");
+        File.WriteAllText(Path.Combine(_output, "logo-samples-full-compact.json"), await ScriptAsync("window.logoSamples"));
         await AssertScriptAsync("(()=>{const samples=window.logoSamples.filter(sample=>sample.angle>20&&sample.angle<90);return samples.length>5&&Math.max(...samples.map(sample=>sample.viewportHeight))-Math.min(...samples.map(sample=>sample.viewportHeight))<=1&&Math.max(...samples.map(sample=>sample.viewportWidth))-Math.min(...samples.map(sample=>sample.viewportWidth))<=1;})()",
             "Browser layout viewport stays fixed while the native window changes size");
         await AssertScriptAsync("window.logoSampling=false; window.logoSamples.length > 5 && window.logoSamples.every(sample=>sample.visible<=1) && !document.querySelector('.transition-mark')", "Every sampled frame has at most one visible logo, including the rotation-to-static handoff");

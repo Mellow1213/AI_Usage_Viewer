@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { animate, AnimatePresence, motion, useMotionValue, useSpring, useTransform } from 'motion/react';
 import { ArrowDownLeft, ArrowDownRight, ArrowUpLeft, ArrowUpRight, Check, ChevronDown, CirclePlus, Clock3, Grip, Link2, MoreHorizontal, Pin, Plus, RefreshCw, Rows3, LayoutPanelTop, Unplug, UserRound, X } from 'lucide-react';
 import './style.css';
+import { nextDisplayDelay } from './displayClock.js';
 
 const native = window.chrome?.webview;
 const send = (action, extra = {}) => native?.postMessage({ action, ...extra });
@@ -154,7 +155,34 @@ function TodayUsage({ quota, available, observedAt, compact = false, intervalMin
   </button></div>;
 }
 
-function ProviderCard({ provider, account, busy, now, onConnect, onMeasurements, measurementInterval, services = catalog }) {
+function useProviderClock(provider) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    let timer;
+    const tick = () => {
+      clearTimeout(timer);
+      const current = Date.now();
+      setNow(current);
+      const delay = nextDisplayDelay(provider, current);
+      if (delay !== null) timer = setTimeout(tick, delay);
+    };
+    // A newly received snapshot and a restored card update immediately. Cards
+    // unmount in logo mode, so that mode has no receipt/countdown clock at all.
+    tick();
+    window.addEventListener('focus', tick);
+    const resume = () => { if (!document.hidden) { clearTimeout(timer); tick(); } };
+    document.addEventListener('visibilitychange', resume);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('focus', tick);
+      document.removeEventListener('visibilitychange', resume);
+    };
+  }, [provider]);
+  return now;
+}
+
+function ProviderCard({ provider, account, busy, onConnect, onMeasurements, measurementInterval, services = catalog }) {
+  const now = useProviderClock(provider);
   const reduce = useReducedMotion();
   const isClaude = serviceOf(provider) === 'claude';
   const service = services.find(item => item.id === serviceOf(provider));
@@ -187,7 +215,8 @@ function ProviderCard({ provider, account, busy, now, onConnect, onMeasurements,
   </motion.section>;
 }
 
-function CompactProvider({ provider, account, now, intervalMinutes, onMeasurements }) {
+function CompactProvider({ provider, account, intervalMinutes, onMeasurements }) {
+  const now = useProviderClock(provider);
   const claude = serviceOf(provider) === 'claude';
   const windows = provider.windows ?? [];
   // Compact Claude prioritizes the weekly pool. Keep the 5h quota separate
@@ -300,7 +329,6 @@ function MeasurementSettings({ state, onChange }) {
 
 function App() {
   const [state, setState] = useState(latest);
-  const [now, setNow] = useState(Date.now());
   const [menu, setMenu] = useState(false);
   const [menuPage, setMenuPage] = useState('settings');
   const reduce = useReducedMotion();
@@ -327,8 +355,7 @@ function App() {
     window.addEventListener('usage-state', receive);
     send('ready');
     if (!native && !preview) setState(s => ({ ...s, busy: false, providers: s.providers.map(p => ({ ...p, status: 'disconnected', message: '데스크톱 앱에서 실행해주세요.' })) }));
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => { clearInterval(timer); window.removeEventListener('usage-state', receive); };
+    return () => { window.removeEventListener('usage-state', receive); };
   }, []);
   useEffect(() => {
     const view = panel.current.querySelector(`[data-view="${mode}"]`);
@@ -423,9 +450,9 @@ function App() {
       <div className="header-actions"><button className={`icon-button ${state.pinned ? 'selected' : ''}`} title={state.pinned ? '항상 위 고정 해제' : '항상 위에 고정'} aria-label="항상 위에 고정" aria-pressed={state.pinned} onClick={() => action('pin')}><Pin size={13} /></button><button className="icon-button" title="AI 추가·제거" aria-label="AI 추가" onClick={openPicker}><CirclePlus size={14} /></button><button className="icon-button view-toggle" title={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-label={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-pressed={mode === 0} onClick={() => { setMenu(false); action('toggleDetails'); }}>{mode === 0 ? <Rows3 size={14} /> : <LayoutPanelTop size={14} />}</button><button className={`icon-button ${menu ? 'selected' : ''}`} title="설정" aria-label="설정" onClick={() => { setMenuPage('settings'); setMenu(!menu); }}><MoreHorizontal size={17} /></button></div>
     </header>
       {state.providers.length === 0 ? <EmptyDashboard onAdd={openPicker} /> : mode === 1 ? <motion.div key="compact" className="compact" data-count={state.providers.length} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : .14 }}>
-        {state.providers.map(p => <CompactProvider key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} now={now} intervalMinutes={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} />)}
+        {state.providers.map(p => <CompactProvider key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} intervalMinutes={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} />)}
       </motion.div> : <motion.main key="expanded" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : .14 }}>
-        <div className="cards">{state.providers.map(p => <ProviderCard key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} busy={state.busy} now={now} onConnect={openAccounts} measurementInterval={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} services={state.serviceCatalog ?? catalog} />)}</div>
+        <div className="cards">{state.providers.map(p => <ProviderCard key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} busy={state.busy} onConnect={openAccounts} measurementInterval={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} services={state.serviceCatalog ?? catalog} />)}</div>
       </motion.main>}
     <footer><span className="footer-status"><span className={`pulse-dot ${state.busy || state.authBusy ? 'working' : ''}`} />{state.authBusy ? '로그인 완료 대기 중' : state.busy ? '사용량 업데이트 중' : state.pinned ? '항상 위에 고정됨' : '고정 해제됨'}</span><button className={`icon-button refresh ${state.busy ? 'rotating' : ''}`} aria-label="사용량 새로고침" title="새로고침 · Codex 자동 갱신 60초" disabled={state.providers.length === 0 || state.busy || state.authBusy} onClick={() => action('refresh')}><RefreshCw size={12} /></button></footer>
     {preview && <div className="preview-label">디자인 미리보기 · 예시 데이터</div>}

@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     private DateTimeOffset _lastRefreshAttempt;
     private bool _busy;
     private bool _ready;
+    private string? _lastPublishedState;
     private WidgetViewMode _viewMode;
     private WidgetViewMode _lastCardView = WidgetViewMode.Expanded;
     private NativeRect? _moveStart;
@@ -192,7 +193,7 @@ public partial class MainWindow : Window
                     Startup.Visibility = Visibility.Collapsed;
                     Browser.Visibility = Visibility.Visible;
                     foreach (var session in _sessions.Values) session.Usage = NotConnected(session.Profile.Id);
-                    Publish();
+                    Publish(force: true);
                     _timer.Start();
                     if (!_testMode && _dashboard.ProviderIds.Length > 0) await RefreshAsync();
                     break;
@@ -475,7 +476,7 @@ public partial class MainWindow : Window
         finally { _busy = false; if (!_closed) Publish(); }
     }
 
-    private void Publish()
+    private void Publish(bool force = false)
     {
         if (!_ready || _closed || WebView is null) return;
         string? Identity(AccountConnection account, ProviderUsage usage) => _testMode ? "verification"
@@ -489,7 +490,7 @@ public partial class MainWindow : Window
             var usage = session.Usage with { Id = id, Name = session.Profile.DisplayName, Service = session.Profile.Service, DefaultName = session.Profile.Name };
             return _daily.Observe(usage, Identity(session.Account, usage), now, interval, _measurement.WindowMinutes);
         }).ToArray();
-        WebView.PostWebMessageAsJson(JsonSerializer.Serialize(new
+        var payload = JsonSerializer.Serialize(new
         {
             busy = _busy, pinned = Topmost, collapsed = _viewMode != WidgetViewMode.Expanded, viewMode = (int)_viewMode, viewRevision = _viewRevision,
             bridgeInstalled = Claude.Installed, notice = _notice, authBusy = AuthBusy, loginProvider = _loginProvider,
@@ -500,7 +501,13 @@ public partial class MainWindow : Window
             accounts = _sessions.Values.Select(session => session.Account with
                 { Name = session.Profile.DisplayName, Service = session.Profile.Service, Enabled = session.Profile.Enabled,
                     Nickname = session.Profile.Nickname, DefaultName = session.Profile.Name }).ToArray(), providers
-        }, WidgetStorage.Json));
+        }, WidgetStorage.Json);
+        // Keep source polling and daily aggregation running, but avoid parsing and
+        // rendering an identical snapshot in React. A new ready handshake always
+        // receives the full state, including after a page reload.
+        if (!force && payload == _lastPublishedState) return;
+        WebView.PostWebMessageAsJson(payload);
+        _lastPublishedState = payload;
     }
 
     internal void SetFixture(ProviderUsage codex, ProviderUsage claude, bool busy = false)
