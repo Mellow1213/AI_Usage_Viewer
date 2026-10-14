@@ -25,6 +25,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
     private var web: WKWebView!
     private var store: WidgetStore!
     private var ready = false
+    private var contentVisible = false
     private var lastPayload = ""
     private var wakeObserver: NSObjectProtocol?
     private var iconTimer: Timer?
@@ -68,10 +69,16 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             (() => {
               const listeners = new Set();
               window.aiUsageNative = {
+                visible: false,
                 postMessage: value => window.webkit.messageHandlers.native.postMessage(value),
                 addEventListener: (name, callback) => { if (name === 'message') listeners.add(callback); }
               };
               window.aiUsageReceive = value => { for (const callback of listeners) callback({ data: value }); };
+              window.aiUsageSetVisible = visible => {
+                if (window.aiUsageNative.visible === visible) return;
+                window.aiUsageNative.visible = visible;
+                window.dispatchEvent(new Event('usage-visibility'));
+              };
               document.addEventListener('keydown', event => {
                 if (event.key === 'Escape' && !['INPUT', 'TEXTAREA'].includes(event.target.tagName)) {
                   event.preventDefault(); window.aiUsageNative.postMessage({ action: 'toggleLogo' });
@@ -87,7 +94,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             web.underPageBackgroundColor = NSColor(calibratedRed: 17/255, green: 19/255, blue: 22/255, alpha: 1)
             let controller = NSViewController(); controller.view = web
             popover.contentViewController = controller; popover.contentSize = NSSize(width: 304, height: 400)
-            popover.behavior = .transient
+            popover.behavior = smokeDirectory == nil ? .transient : .applicationDefined
             popover.animates = store.preferences.animateTransitions; popover.delegate = self
             store.changed = { [weak self] in self?.publish() }
             store.hide = { [weak self] in self?.popover.performClose(nil) }
@@ -132,10 +139,17 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         guard let button = item?.button else { return }
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        contentVisible = popover.isShown
         popover.contentViewController?.view.window?.makeKey()
         publish(force: true)
     }
-    func popoverDidShow(_ notification: Notification) { publish(force: true) }
+    func popoverWillShow(_ notification: Notification) { contentVisible = true }
+    func popoverDidShow(_ notification: Notification) { contentVisible = true; publish(force: true) }
+    func popoverWillClose(_ notification: Notification) {
+        contentVisible = false
+        guard ready else { return }
+        web.evaluateJavaScript("window.aiUsageSetVisible(false);", completionHandler: nil)
+    }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "native", message.frameInfo.isMainFrame,
               message.frameInfo.securityOrigin.protocol == "aiusage", message.frameInfo.securityOrigin.host == "widget",
@@ -177,10 +191,11 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         }.joined(separator: " · ")
         item?.button?.toolTip = summary.isEmpty ? "AI Usage · 클릭해서 계정 연결" : summary
         popover.animates = store.preferences.animateTransitions && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        guard ready, let data = try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]),
+        // Keep polling in the background, but deliver only the latest state when reopened.
+        guard ready, contentVisible, let data = try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]),
               let payload = String(data: data, encoding: .utf8), force || payload != lastPayload else { return }
         lastPayload = payload
-        web.evaluateJavaScript("window.aiUsageReceive(\(payload));", completionHandler: nil)
+        web.evaluateJavaScript("window.aiUsageSetVisible(true); window.aiUsageReceive(\(payload));", completionHandler: nil)
     }
     private func updateIconAnimation() {
         let allowed = store.preferences.animateTransitions && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -213,7 +228,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         }
         image.isTemplate = true; item?.button?.image = image
     }
-    private func verifyRefreshRotation(activeMilliseconds: Int) async throws -> Object {
+    private func verifyRefreshRotation(activeMilliseconds: Int, burst: Bool = false) async throws -> Object {
         // WebKit suspends animation frames while the transient popover is closed.
         // Finish the startup turn before measuring a separate refresh request.
         showPopover()
@@ -229,7 +244,8 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             const matrix = transform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(transform);
             return Math.atan2(matrix.b, matrix.a) * 180 / Math.PI;
           };
-          const result = window.__refreshRotation = { frames: 0, total: 0, minimumStep: 0, maximumTurn: 0, finished: false };
+          const result = window.__refreshRotation = { frames: 0, total: 0, minimumStep: 0, maximumTurn: 0, finished: false,
+            initial: { visible: window.aiUsageNative.visible, hidden: document.hidden, transitioning: !!document.querySelector('.is-logo-moving') } };
           let previous = readAngle();
           const started = performance.now();
           const sample = now => {
@@ -242,21 +258,86 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
           requestAnimationFrame(sample);
           window.aiUsageReceive({ ...state, busy: true });
           setTimeout(() => window.aiUsageReceive({ ...state, busy: false }), \(activeMilliseconds));
+          if (\(burst)) for (let i = 1; i < 10; i++) {
+            setTimeout(() => window.aiUsageReceive({ ...state, busy: true }), i * 140);
+            setTimeout(() => window.aiUsageReceive({ ...state, busy: false }), i * 140 + 40);
+          }
         })();
         """)
         try await Task.sleep(nanoseconds: UInt64(sampleMilliseconds + 100) * 1_000_000)
         var result = try await web.evaluateJavaScript("window.__refreshRotation") as? Object ?? [:]
         result["busyMilliseconds"] = activeMilliseconds
+        result["refreshes"] = burst ? 10 : 1
         result["passed"] = result["finished"] as? Bool == true && (result["frames"] as? Int ?? 0) > 20
             && abs((result["total"] as? Double ?? 0) - 360) < 1
             && (result["minimumStep"] as? Double ?? -.infinity) >= -0.1
             && (result["maximumTurn"] as? Double ?? .infinity) <= 361
         return result
     }
+    private func verifyHiddenRefreshRotation(interrupt: Bool = false) async throws -> Object {
+        showPopover()
+        try await Task.sleep(nanoseconds: 1_850_000_000)
+        let data = try JSONSerialization.data(withJSONObject: store.state(maxHeight: maxHeight))
+        let state = String(decoding: data, as: UTF8.self)
+        var interruptedAngle = 0.0
+        if interrupt {
+            try await web.evaluateJavaScript("window.aiUsageReceive({ ...\(state), busy: true });")
+            try await Task.sleep(nanoseconds: 350_000_000)
+            interruptedAngle = try await web.evaluateJavaScript("(() => { const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.triangle')).transform); return Math.abs(Math.atan2(m.b, m.a) * 180 / Math.PI); })()") as? Double ?? 0
+        }
+        popover.performClose(nil)
+        try await Task.sleep(nanoseconds: 250_000_000)
+        try await web.evaluateJavaScript("window.__hiddenHostUpdates = 0; window.aiUsageNative.addEventListener('message', () => window.__hiddenHostUpdates++);")
+        for _ in 0..<3 { publish(force: true) }
+        let hidden = try await web.evaluateJavaScript("({visible: window.aiUsageNative.visible, hostUpdates: window.__hiddenHostUpdates})") as? Object ?? [:]
+        // Accelerate several background polling cycles while WebKit cannot paint.
+        for _ in 0..<(interrupt ? 1 : 12) {
+            if !interrupt {
+                try await web.evaluateJavaScript("window.aiUsageReceive({ ...\(state), busy: true });")
+                try await Task.sleep(nanoseconds: 80_000_000)
+            }
+            try await web.evaluateJavaScript("window.aiUsageReceive({ ...\(state), busy: false });")
+            try await Task.sleep(nanoseconds: 80_000_000)
+        }
+        try await web.evaluateJavaScript("""
+        (() => {
+          const logo = document.querySelector('.triangle');
+          const readAngle = () => {
+            const transform = getComputedStyle(logo).transform;
+            const matrix = transform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(transform);
+            return Math.atan2(matrix.b, matrix.a) * 180 / Math.PI;
+          };
+          const result = window.__hiddenRefreshRotation = { frames: 0, travel: 0, finished: false };
+          let previous = readAngle(), started;
+          const sample = now => {
+            started ??= now;
+            const angle = readAngle();
+            result.travel += Math.abs(((angle - previous + 540) % 360) - 180);
+            result.frames++; previous = angle;
+            if (now - started < 2100) requestAnimationFrame(sample);
+            else result.finished = true;
+          };
+          requestAnimationFrame(sample);
+        })();
+        """)
+        showPopover()
+        try await Task.sleep(nanoseconds: 2_700_000_000)
+        var result = try await web.evaluateJavaScript("window.__hiddenRefreshRotation") as? Object ?? [:]
+        result["backgroundRefreshes"] = interrupt ? 0 : 12
+        result["interrupted"] = interrupt
+        result["interruptedAngle"] = interruptedAngle
+        result["hidden"] = hidden
+        result["passed"] = result["finished"] as? Bool == true && (result["frames"] as? Int ?? 0) > 20
+            && (result["travel"] as? Double ?? .infinity) < 1
+            && hidden["visible"] as? Bool == false && hidden["hostUpdates"] as? Int == 0
+            && (!interrupt || interruptedAngle > 1)
+        return result
+    }
     private func runSmoke() {
         guard smokeDirectory != nil, !smokeStarted else { return }; smokeStarted = true
         Task {
             do {
+                showPopover()
                 try await Task.sleep(nanoseconds: 1_000_000_000)
                 let first = try await web.evaluateJavaScript("({text: document.body.innerText, cards: document.querySelectorAll('.provider').length, platform: !!window.aiUsageNative})") as? Object ?? [:]
                 let fastRefresh = try await verifyRefreshRotation(activeMilliseconds: 100)
@@ -264,6 +345,9 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                 try await Task.sleep(nanoseconds: 700_000_000)
                 let compact = try await web.evaluateJavaScript("document.querySelector('.compact') !== null && !!document.querySelector('.header .refresh') && !document.querySelector('footer')") as? Bool ?? false
                 let slowRefresh = try await verifyRefreshRotation(activeMilliseconds: 2400)
+                let hiddenRefresh = try await verifyHiddenRefreshRotation()
+                let interruptedRefresh = try await verifyHiddenRefreshRotation(interrupt: true)
+                let reopenedRefresh = try await verifyRefreshRotation(activeMilliseconds: 100, burst: true)
                 await store.action(["action": "showFull"])
                 showPopover()
                 try await Task.sleep(nanoseconds: 700_000_000)
@@ -276,9 +360,12 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                 let passed = first["platform"] as? Bool == true && (first["cards"] as? Int ?? 0) == 2 && compact && cardFits
                     && layout["refreshInHeader"] as? Bool == true && layout["footerRemoved"] as? Bool == true
                     && fastRefresh["passed"] as? Bool == true && slowRefresh["passed"] as? Bool == true
+                    && hiddenRefresh["passed"] as? Bool == true
+                    && interruptedRefresh["passed"] as? Bool == true && reopenedRefresh["passed"] as? Bool == true
                 finishSmoke(["passed": passed, "readyHandshake": ready, "statusItem": item.button != nil,
                              "renderedCards": first["cards"] ?? 0, "compactMode": compact, "cardFits": cardFits, "layout": layout,
-                             "fastRefresh": fastRefresh, "slowRefresh": slowRefresh, "text": first["text"] ?? ""])
+                             "fastRefresh": fastRefresh, "slowRefresh": slowRefresh, "hiddenRefresh": hiddenRefresh,
+                             "interruptedRefresh": interruptedRefresh, "reopenedRefresh": reopenedRefresh, "text": first["text"] ?? ""])
             } catch { finishSmoke(["passed": false, "error": String(describing: error)]) }
         }
     }

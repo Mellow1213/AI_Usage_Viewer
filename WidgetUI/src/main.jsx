@@ -51,18 +51,33 @@ native?.addEventListener('message', event => {
 
 function Triangle({ active = false, connected = false, large = false, transitioning = false, rotation = 0, rotationStep = 120, onSpinComplete }) {
   const reduce = useReducedMotion();
-  const [refreshTurns, setRefreshTurns] = useState(0);
+  const refreshRotation = useMotionValue(rotation);
   const wasActive = useRef(false);
   useEffect(() => {
-    // Keep the completed angle when a request finishes, even if it finishes mid-turn.
-    if (active && !wasActive.current && !transitioning && !reduce) setRefreshTurns(turns => turns + 1);
+    // Offscreen WebViews can suspend frames while continuing to receive usage updates.
+    // Discard the old turn on either visibility edge instead of replaying it on return.
+    const reset = () => refreshRotation.jump(rotation);
+    reset();
+    document.addEventListener('visibilitychange', reset);
+    window.addEventListener('usage-visibility', reset);
+    return () => {
+      document.removeEventListener('visibilitychange', reset);
+      window.removeEventListener('usage-visibility', reset);
+      refreshRotation.stop();
+    };
+  }, [refreshRotation, rotation, reduce, transitioning]);
+  useEffect(() => {
+    if (active && !wasActive.current && !transitioning && !reduce && !document.hidden && native?.visible !== false && !refreshRotation.isAnimating()) {
+      // One bounded turn: overlapping refreshes never add rotations to a backlog.
+      animate(refreshRotation, rotation + 360, { duration: 1.6, ease: 'easeInOut', onComplete: () => refreshRotation.jump(rotation) });
+    }
     wasActive.current = active;
-  }, [active, transitioning, reduce]);
+  }, [active, transitioning, reduce, refreshRotation, rotation]);
   const waving = connected && !transitioning && !reduce;
   const from = transitioning ? rotation - rotationStep : rotation;
   return <motion.svg className={`triangle ${connected ? 'connected' : 'disconnected'} ${large ? 'large' : ''} ${waving ? 'waving' : ''} ${active && !reduce ? 'syncing' : ''}`} viewBox="0 0 40 40" fill="none" aria-label={transitioning ? '화면 전환 중' : active ? '갱신 중' : connected ? '모든 AI 연결됨' : 'AI 연결 확인 필요'}
-    style={{ transformOrigin: '50% 58.333333%' }} initial={{ rotate: from }}
-    animate={{ rotate: transitioning ? [from, rotation] : rotation + refreshTurns * 360 }}
+    style={{ transformOrigin: '50% 58.333333%', ...(!transitioning ? { rotate: refreshRotation } : {}) }} initial={transitioning ? { rotate: from } : false}
+    animate={transitioning ? { rotate: [from, rotation] } : undefined}
     onAnimationComplete={transitioning ? onSpinComplete : undefined}
     transition={{ duration: transitioning ? .48 : reduce ? 0 : 1.6, ease: 'easeInOut' }}>
     {['M20 4 L27 16 L13 16 Z', 'M30 21 L37 33 L23 33 Z', 'M10 21 L17 33 L3 33 Z'].map((d, i) =>
