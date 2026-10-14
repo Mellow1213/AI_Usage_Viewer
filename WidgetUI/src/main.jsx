@@ -187,7 +187,8 @@ function ProviderCard({ provider, account, busy, onConnect, onMeasurements, meas
   const isClaude = serviceOf(provider) === 'claude';
   const service = services.find(item => item.id === serviceOf(provider));
   const windows = provider.windows ?? [];
-  const main = windows.find(w => w.label === '5시간') ?? windows[0];
+  const main = windows.find(w => w.key === 'seven_day' || w.label === '주간')
+    ?? windows.find(w => w.key === 'five_hour' || w.label === '5시간') ?? windows[0];
   const extra = windows.filter(w => w !== main);
   const expired = main?.resetsAt && main.resetsAt * 1000 <= now;
   const available = !!main && !expired;

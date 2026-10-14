@@ -244,7 +244,7 @@ internal static class Program
         await Task.Delay(150);
         await AssertScriptAsync("document.querySelector('.triangle').classList.contains('connected') && document.querySelector('.triangle').classList.contains('waving') && getComputedStyle(document.querySelector('.triangle')).color==='rgb(196, 232, 161)'", "Reconnecting every selected AI restores the green idle ripple");
         await Task.Delay(1300);
-        await AssertScriptAsync("document.querySelectorAll('.provider').length === 2 && document.querySelector('.codex .number').textContent === '92' && document.querySelector('.claude .number').textContent === '64'", "Native-to-React quota state and percentage display");
+        await AssertScriptAsync("document.querySelectorAll('.provider').length === 2 && document.querySelector('.codex .number').textContent === '92' && document.querySelector('.claude .number').textContent === '38'", "Native-to-React quota state and weekly percentage display");
         await AssertScriptAsync("document.documentElement.scrollWidth <= innerWidth && document.querySelector('.widget').getBoundingClientRect().height <= innerHeight + 2", "Expanded card fits native window without scrollbars or clipping");
         await CaptureAsync("cards.png");
         await ScriptAsync("document.querySelector('[aria-label=\"관측 측정 설정\"]').click()");
@@ -547,7 +547,7 @@ internal static class Program
         await WaitAsync(() => _window.Ready, "Mixed AI React ready");
         await _window.RefreshAsync(true);
         await Task.Delay(1100);
-        await AssertScriptAsync("document.querySelectorAll('.provider.codex').length===2 && document.querySelectorAll('.provider.claude').length===2 && [...document.querySelectorAll('.provider .number')].map(node=>node.textContent).join(',')==='88,80,73,55'",
+        await AssertScriptAsync("document.querySelectorAll('.provider.codex').length===2 && document.querySelectorAll('.provider.claude').length===2 && [...document.querySelectorAll('.provider .number')].map(node=>node.textContent).join(',')==='88,70,73,32'",
             "Mixed dashboard routes independent Codex and Claude CLI quotas to four account cards");
         foreach (var home in new[] { firstClaudeHome, secondClaudeHome })
         {
@@ -598,7 +598,7 @@ internal static class Program
         await ScriptAsync($"[...document.querySelectorAll('.account-box[data-account-id=\"{extraClaude.Id}\"] .account-secondary')].find(button=>button.textContent==='로그아웃').click()");
         await Task.Delay(700);
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
-        await AssertScriptAsync($"document.querySelector('[data-account-id=\"{extraClaude.Id}\"] .number').textContent==='—' && document.querySelector('[data-account-id=\"claude\"] .number').textContent==='80' && document.querySelector('[data-account-id=\"codex\"] .number').textContent==='88'",
+        await AssertScriptAsync($"document.querySelector('[data-account-id=\"{extraClaude.Id}\"] .number').textContent==='—' && document.querySelector('[data-account-id=\"claude\"] .number').textContent==='70' && document.querySelector('[data-account-id=\"codex\"] .number').textContent==='88'",
             "Logging out an extra Claude account preserves both the original Claude and the Codex accounts");
         using (var settings = JsonDocument.Parse(File.ReadAllText(Path.Combine(secondClaudeHome, "settings.json"))))
             Check(settings.RootElement.GetProperty("statusLine").GetProperty("command").GetString() == "printf 'original'",
@@ -618,7 +618,7 @@ internal static class Program
         await _window.RefreshAsync(true);
         await Task.Delay(1100);
         Check(await ScriptAsync("document.querySelectorAll('.provider').length") == expectedIds.Length.ToString(), "Mixed-service account selections and order survive restart");
-        await AssertScriptAsync($"document.querySelector('[data-account-id=\"{extraClaude.Id}\"] .number').textContent==='—' && document.querySelector('[data-account-id=\"claude\"] .number').textContent==='80'",
+        await AssertScriptAsync($"document.querySelector('[data-account-id=\"{extraClaude.Id}\"] .number').textContent==='—' && document.querySelector('[data-account-id=\"claude\"] .number').textContent==='70'",
             "Restart preserves Claude's per-account logout state without affecting its connected sibling");
         var savedMetadata = File.ReadAllText(Path.Combine(directory, "account-profiles.json"));
         Check(!savedMetadata.Contains("@") && !savedMetadata.Contains("fixture-inherited"), "Shared account registry contains neither account emails nor credentials");
