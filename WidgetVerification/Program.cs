@@ -533,6 +533,55 @@ internal static class Program
         await ScriptAsync("[...document.querySelectorAll('.selected-provider')].find(row=>row.querySelector('span').textContent==='Claude' && row.querySelector('button').textContent.includes('다시 표시')).querySelector('button').click()");
         await Task.Delay(250);
         Check(DashboardPreferences.Read(directory, new()).ProviderIds.Contains("claude"), "Saved primary account restores through the shared picker action");
+        await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
+        var preferencesBeforeRename = AiAccountPreferences.Read(directory, new()).Profiles.Select(p => (p.Id, p.Service, p.Name, p.Enabled, p.UseSystem)).ToArray();
+        await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
+        await Task.Delay(250);
+        await ScriptAsync("document.querySelector('[aria-label=\"계정 연결 관리\"]').click()");
+        await Task.Delay(350);
+        await ScriptAsync("(()=>{const input=document.getElementById('nickname-codex');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'  개인용 Codex  ');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
+        await Task.Delay(100);
+        await ScriptAsync("document.querySelector('.account-box[data-account-id=\"codex\"] .account-nickname button').click()");
+        await Task.Delay(250);
+        await ScriptAsync($"(()=>{{const input=document.getElementById('nickname-{extraClaude.Id}');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'업무용 Claude');input.dispatchEvent(new Event('input',{{bubbles:true}}));}})()");
+        await Task.Delay(100);
+        await ScriptAsync($"document.querySelector('.account-box[data-account-id=\"{extraClaude.Id}\"] .account-nickname button').click()");
+        await Task.Delay(250);
+        var renamed = AiAccountPreferences.Read(directory, new());
+        Check(renamed.Profiles.Single(p => p.Id == "codex").Nickname == "개인용 Codex" && renamed.Profiles.Single(p => p.Id == extraClaude.Id).Nickname == "업무용 Claude",
+            "Nickname editor saves trimmed independent aliases for Codex and Claude");
+        Check(renamed.Profiles.Select(p => (p.Id, p.Service, p.Name, p.Enabled, p.UseSystem)).SequenceEqual(preferencesBeforeRename),
+            "Saving aliases preserves account IDs, default names and connection settings");
+        await CaptureAsync("account-nicknames.png");
+        await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
+        await AssertScriptAsync($"document.querySelector('[data-account-id=\"codex\"] .provider-name').textContent.includes('개인용 Codex') && document.querySelector('[data-account-id=\"{extraClaude.Id}\"] .provider-name').textContent.includes('업무용 Claude') && document.querySelector('[data-account-id=\"codex\"] .number').textContent==='88'",
+            "Detailed cards show saved nicknames without clearing their usage values");
+        await ScriptAsync("document.querySelector('[aria-label=\"간략히 보기\"]').click()");
+        await Task.Delay(950);
+        await AssertScriptAsync("document.querySelector('.compact>[data-account-id=\"codex\"] .compact-name').textContent.includes('개인용 Codex') && document.querySelector('.compact>[data-account-id=\"codex\"] .compact-name').title.includes('Codex') && document.documentElement.scrollWidth<=innerWidth",
+            "Compact cards show nicknames and retain default AI identity in the tooltip without overflow");
+        await CaptureAsync("nickname-compact.png");
+        _window.Close();
+        _window = new MainWindow(directory, testMode: true, codexFactory: CodexFactory, openCodexLogin: _ => { }, claudeFactory: ClaudeFactory);
+        _window.Show();
+        await WaitAsync(() => _window.Ready, "Nickname restart ready");
+        await _window.RefreshAsync(true);
+        await Task.Delay(1100);
+        await AssertScriptAsync("document.querySelector('.compact>[data-account-id=\"codex\"] .compact-name').textContent.includes('개인용 Codex')",
+            "Saved account nicknames survive an application restart");
+        await ScriptAsync("window.chrome.webview.postMessage({action:'setAccountNickname',accountId:'codex',nickname:'    '})");
+        await Task.Delay(200);
+        Check(AiAccountPreferences.Read(directory, new()).Profiles.Single(p => p.Id == "codex").Nickname is null,
+            "Empty nickname restores the preserved default account name");
+        await AssertScriptAsync("document.querySelector('.compact>[data-account-id=\"codex\"] .compact-name').textContent.startsWith('Codex')",
+            "Clearing a nickname immediately restores the default name in the card");
+        await ScriptAsync("window.chrome.webview.postMessage({action:'setAccountNickname',accountId:'codex',nickname:'긴'.repeat(60)+'\\n'})");
+        await Task.Delay(200);
+        Check(AiAccountPreferences.Read(directory, new()).Profiles.Single(p => p.Id == "codex").Nickname?.Length == 24,
+            "Native nickname validation enforces the maximum length even when UI limits are bypassed");
+        await AssertScriptAsync("document.documentElement.scrollWidth<=innerWidth", "Long nicknames keep the compact layout inside the window");
+        await ScriptAsync("window.chrome.webview.postMessage({action:'setAccountNickname',accountId:'codex',nickname:'개인용 Codex'})");
+        await Task.Delay(200);
     }
 
     private static async Task VerifyMultipleCodexAsync()

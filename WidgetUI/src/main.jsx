@@ -163,7 +163,7 @@ function ProviderCard({ provider, account, busy, now, onConnect, onMeasurements,
   return <motion.section className={`provider ${providerClass(provider)} ${low ? 'low' : ''}`} data-account-id={provider.id} aria-label={`${providerName(provider)} 잔여량`}
     initial={reduce ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .45, delay: isClaude ? .08 : 0 }}>
     <div className="provider-head">
-      <div className="provider-brand"><span className="provider-symbol">{service?.symbol ?? '✦'}</span><span className="provider-name" title={account?.email}>{providerName(provider)}<PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span></div>
+      <div className="provider-brand"><span className="provider-symbol">{service?.symbol ?? '✦'}</span><span className="provider-name" title={[provider.defaultName, account?.email].filter(Boolean).join(' · ')}>{providerName(provider)}<PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span></div>
       <span className={`status-tag ${stale || provider.status === 'error' ? 'muted' : ''}`}><span className="status-dot" />{provider.status === 'ready' ? stale ? '이전 수신값' : '연결됨' : provider.status === 'loading' ? '연결 중' : provider.status === 'error' ? '연결 오류' : provider.status === 'disconnected' ? '로그인 필요' : provider.status === 'signingIn' ? '로그인 중' : '응답 대기'}</span>
     </div>
     <div className="quota-title"><span>{main ? `${main.label} 잔여량` : '사용량 잔여'} </span><span className="tiny-caption">REMAINING</span></div>
@@ -192,7 +192,7 @@ function CompactProvider({ provider, account, now, intervalMinutes, onMeasuremen
   const available = quota => !!quota && (!quota.resetsAt || quota.resetsAt * 1000 > now);
   const valid = available(main);
   return <div className={providerClass(provider)} data-account-id={provider.id}>
-    <span className="compact-name" title={account?.email}>{providerName(provider)}<PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span>
+    <span className="compact-name" title={[provider.defaultName, account?.email].filter(Boolean).join(' · ')}>{providerName(provider)}<PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span>
     <strong>{valid ? <><NumberValue value={main.remainingPercent} /><small>%</small></> : '—'}</strong>
     <div className="compact-period"><span className="compact-label">{main?.label ?? (claude ? '주간' : '수신 대기')}</span><CompactReset quota={main} label={main?.label ?? (claude ? '주간' : '한도')} now={now} /></div>
     {claude ? <div className="compact-subquota" aria-label="Claude 5시간 잔여량"><div className="compact-period"><span>5시간</span><CompactReset quota={sub} label="5시간" now={now} /></div><span className="compact-subvalue">{available(sub) ? <><NumberValue value={sub.remainingPercent} />%</> : '—'}</span></div> : <div className="compact-subquota-slot" aria-hidden="true" />}
@@ -200,7 +200,20 @@ function CompactProvider({ provider, account, now, intervalMinutes, onMeasuremen
   </div>;
 }
 
-function Accounts({ state, onAdd, onRestore }) {
+function AccountNickname({ account, disabled, onSave }) {
+  const [draft, setDraft] = useState(account.nickname ?? '');
+  useEffect(() => { setDraft(account.nickname ?? ''); }, [account.nickname]);
+  const changed = draft !== (account.nickname ?? '');
+  return <form className="account-nickname" onSubmit={event => { event.preventDefault(); if (changed && !disabled) onSave(account.id, draft); }}>
+    <label htmlFor={`nickname-${account.id}`}>별명 <span>비우면 기본 이름</span></label>
+    <div><input id={`nickname-${account.id}`} type="text" value={draft} maxLength={24} autoComplete="off" spellCheck={false}
+      placeholder="예: 개인용, 업무용" disabled={disabled} onChange={event => setDraft(event.target.value)}
+      onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setDraft(account.nickname ?? ''); } }} />
+      <button type="submit" disabled={disabled || !changed}>저장</button></div>
+  </form>;
+}
+
+function Accounts({ state, onAdd, onRestore, onRename }) {
   const locked = state.busy || state.authBusy;
   const accounts = (state.accounts ?? initial.accounts).filter(account => state.providers.some(provider => provider.id === account.id)
     || savedAccount(account));
@@ -216,8 +229,9 @@ function Accounts({ state, onAdd, onRestore }) {
       const connected = account.status === 'connected';
       const signing = account.status === 'signingIn';
       return <section className={`account-box ${providerClass(account)}`} data-account-id={account.id} key={account.id} aria-label={`${name} 계정 연결`}>
-        <div className="account-box-head"><strong>{name}</strong><span>{account.source === 'system' ? '기존 CLI 공유' : '위젯 전용'}</span></div>
+        <div className="account-box-head"><strong title={name}>{name}</strong><span>{account.nickname ? `${account.defaultName ?? service?.name} · ` : ''}{account.source === 'system' ? '기존 CLI 공유' : '위젯 전용'}</span></div>
         <div className="account-email" title={account.email}>{account.email ?? (signing ? '공식 로그인 화면에서 진행 중…' : connected ? '로그인된 계정' : !visible && account.enabled ? '저장된 계정 · 카드 표시 후 연결 확인' : '연결된 계정 없음')}</div>
+        <AccountNickname account={account} disabled={locked} onSave={onRename} />
         {account.message && <p className="account-message">{account.message}</p>}
         {signing ? <>
           <p>{claude ? '공식 Claude Code 창과 브라우저에서 직접 완료해주세요.' : '브라우저에서 ChatGPT 로그인을 직접 완료해주세요.'}</p>
@@ -379,6 +393,16 @@ function App() {
       return { ...s, providers: [...s.providers, { ...source, id, service: serviceOf(account), name: account.name }] };
     });
   };
+  const renameAccount = (id, nickname) => {
+    if (native) send('setAccountNickname', { accountId: id, nickname });
+    else setState(s => {
+      const alias = nickname.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 24) || null;
+      const account = s.accounts.find(item => item.id === id);
+      const defaultName = account?.defaultName ?? account?.name ?? providerName({ id });
+      return { ...s, accounts: s.accounts.map(item => item.id === id ? { ...item, nickname: alias, defaultName, name: alias ?? defaultName } : item),
+        providers: s.providers.map(item => item.id === id ? { ...item, defaultName: item.defaultName ?? item.name ?? defaultName, name: alias ?? (item.defaultName ?? defaultName) } : item) };
+    });
+  };
   return <div className={`view-shell ${changing ? 'is-transitioning' : ''} ${logoMoving ? 'is-logo-moving' : ''}`} ref={panel}><AnimatePresence initial={false} mode="popLayout">
   {mode === 2 ? <motion.div key="logo" data-view={mode} className="logo-shell" role="button" tabIndex={0} aria-label="이전 카드로 돌아가기"
     title={`${state.lastCardView === 1 ? '간략히' : '자세히'} 보기로 돌아가기 · 드래그해서 이동`} onClick={() => action('toggleLogo')}
@@ -402,7 +426,7 @@ function App() {
     <AnimatePresence>{menu && <motion.div className="menu-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMenu(false)}>
       <motion.div className="menu" initial={{ y: -8, scale: .97 }} animate={{ y: 0, scale: 1 }} exit={{ y: -8, scale: .97 }} transition={{ duration: reduce ? 0 : .2 }} onClick={e => e.stopPropagation()}>
         <div className="menu-title">{menuPage === 'accounts' ? '계정 연결' : menuPage === 'providers' ? 'AI 추가' : menuPage === 'measurement' ? '사용량 측정' : '카드 설정'}<button className="icon-button" aria-label="설정 닫기" onClick={() => setMenu(false)}><X size={14} /></button></div>
-        {menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} /> : menuPage === 'providers' ? <ProviderPicker state={state} onAdd={addProvider} onRemove={removeProvider} onRestore={restoreProvider} /> : menuPage === 'accounts' ? <Accounts state={state} onAdd={openPicker} onRestore={restoreProvider} /> : <>
+        {menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} /> : menuPage === 'providers' ? <ProviderPicker state={state} onAdd={addProvider} onRemove={removeProvider} onRestore={restoreProvider} /> : menuPage === 'accounts' ? <Accounts state={state} onAdd={openPicker} onRestore={restoreProvider} onRename={renameAccount} /> : <>
         <button className="menu-row" onClick={openPicker}><Plus size={14} />AI 추가·제거</button>
         <button className="menu-row" aria-label="사용량 측정 설정" onClick={openMeasurements}><Clock3 size={14} />사용량 측정 설정<span className="measurement-menu-value">{measurementLabel(state.measurementIntervalMinutes ?? 30)}</span></button>
         <button className="menu-row" onClick={() => action('pin')}><Pin size={14} />항상 위에 표시{state.pinned && <Check size={13} />}</button>

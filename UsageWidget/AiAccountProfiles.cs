@@ -20,7 +20,21 @@ internal static class AiServices
     internal static string Name(string service) => Catalog.Single(item => item.Id == service).Name;
 }
 
-internal sealed record AiAccountProfile(string Id, string Service, string Name, bool Enabled = false, bool UseSystem = false);
+internal sealed record AiAccountProfile(string Id, string Service, string Name, bool Enabled = false, bool UseSystem = false, string? Nickname = null)
+{
+    internal string DisplayName => Nickname ?? Name;
+    internal static string? NormalizeNickname(string? value)
+    {
+        if (value is null) return null;
+        var text = new string(value.Where(character => !char.IsControl(character)).ToArray()).Trim();
+        if (text.Length > 24)
+        {
+            text = text[..24];
+            if (char.IsHighSurrogate(text[^1])) text = text[..^1];
+        }
+        return text.Length == 0 ? null : text;
+    }
+}
 internal sealed record AiAccountPreferences(AiAccountProfile[] Profiles)
 {
     internal static AiAccountPreferences Read(string directory, ConnectionPreferences legacy)
@@ -35,6 +49,7 @@ internal sealed record AiAccountPreferences(AiAccountProfile[] Profiles)
                     .DistinctBy(p => p.Id).Select(p => p with
                     {
                         Name = string.IsNullOrWhiteSpace(p.Name) ? AiServices.Name(p.Service) : p.Name[..Math.Min(p.Name.Length, 40)],
+                        Nickname = AiAccountProfile.NormalizeNickname(p.Nickname),
                         // Only the original slot of each service may follow its one system CLI login.
                         UseSystem = p.Id == p.Service && p.UseSystem
                     }).ToList();

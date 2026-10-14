@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace UsageWidget;
 
-internal sealed record AccountConnection(string Id, string Source, string Status, string? Email = null, string? Plan = null, string? Message = null, string? Name = null, string? Service = null, bool Enabled = false);
+internal sealed record AccountConnection(string Id, string Source, string Status, string? Email = null, string? Plan = null, string? Message = null, string? Name = null, string? Service = null, bool Enabled = false, string? Nickname = null, string? DefaultName = null);
 internal sealed record ConnectionPreferences(bool UseSystemCodex = false, bool UseSystemClaude = false,
     bool CodexEnabled = false, bool ClaudeEnabled = false);
 

@@ -232,6 +232,10 @@ public partial class MainWindow : Window
                     if (root.TryGetProperty("provider", out var removed) && removed.ValueKind == JsonValueKind.String)
                         await SetProviderVisibilityAsync(removed.GetString()!, false);
                     break;
+                case "setAccountNickname":
+                    if (root.TryGetProperty("nickname", out var nicknameValue) && nicknameValue.ValueKind == JsonValueKind.String)
+                        SetAccountNickname(AccountTarget(root), nicknameValue.GetString());
+                    break;
                 case "pin": Topmost = !Topmost; SavePosition(); Publish(); break;
                 case "toggleMotion":
                     _animateTransitions = !_animateTransitions;
@@ -388,6 +392,18 @@ public partial class MainWindow : Window
         session.Profile = session.Profile with { Enabled = enabled, UseSystem = system };
         _accountProfiles = _accountProfiles.Update(session.Profile);
     }
+    private void SetAccountNickname(string id, string? nickname)
+    {
+        if (_closed || !_sessions.TryGetValue(id, out var session)) return;
+        var profile = session.Profile with { Nickname = AiAccountProfile.NormalizeNickname(nickname) };
+        var updated = _accountProfiles.Update(profile);
+        // Naming never changes the account ID, credentials, connection state or consumption ledger.
+        WidgetStorage.Write(Path.Combine(_dataDirectory, "account-profiles.json"), updated);
+        _accountProfiles = updated;
+        session.Profile = profile;
+        _notice = profile.Nickname is null ? "기본 계정 이름으로 표시합니다." : "별명을 저장했습니다.";
+        Publish();
+    }
     private ProviderUsage NotConnected(string id) => new(id, "disconnected",
         AiServices.ServiceOf(id) == "codex" ? "ChatGPT 계정으로 로그인해주세요." : "Claude Code 계정으로 로그인해주세요.", []);
 
@@ -426,7 +442,7 @@ public partial class MainWindow : Window
             if (session is ClaudeSession claude) claude.Bridge.Install();
             session.Usage = new(id, "loading", "사용량을 조회하고 있습니다.", []); Publish();
             session.Usage = (await session.ReadUsageAsync(true, false, token)) with { Id = id };
-            _notice = $"{session.Profile.Name} 계정을 연결했습니다.";
+            _notice = $"{session.Profile.DisplayName} 계정을 연결했습니다.";
         }
         catch (Exception ex)
         {
@@ -454,7 +470,7 @@ public partial class MainWindow : Window
             await session.LogoutAsync(_lifetime.Token);
             UpdateProfile(session, false, false); session.RestartClient();
             session.Account = new(id, "widget", "disconnected"); session.Usage = NotConnected(id);
-            SaveConnections(); _notice = $"{session.Profile.Name} 연결을 해제했습니다. 다른 계정의 로그인은 유지됩니다.";
+            SaveConnections(); _notice = $"{session.Profile.DisplayName} 연결을 해제했습니다. 다른 계정의 로그인은 유지됩니다.";
         }
         finally { _busy = false; if (!_closed) Publish(); }
     }
@@ -470,7 +486,7 @@ public partial class MainWindow : Window
         var providers = _dashboard.ProviderIds.Select(id =>
         {
             var session = _sessions[id];
-            var usage = session.Usage with { Id = id, Name = session.Profile.Name, Service = session.Profile.Service };
+            var usage = session.Usage with { Id = id, Name = session.Profile.DisplayName, Service = session.Profile.Service, DefaultName = session.Profile.Name };
             return _daily.Observe(usage, Identity(session.Account, usage), now, interval, _measurement.WindowMinutes);
         }).ToArray();
         WebView.PostWebMessageAsJson(JsonSerializer.Serialize(new
@@ -482,7 +498,8 @@ public partial class MainWindow : Window
             measurementIntervalMinutes = _measurement.IntervalMinutes, measurementWindowMinutes = _measurement.WindowMinutes,
             maxCardHeight = MaximumCardHeight(), serviceCatalog = AiServices.Catalog,
             accounts = _sessions.Values.Select(session => session.Account with
-                { Name = session.Profile.Name, Service = session.Profile.Service, Enabled = session.Profile.Enabled }).ToArray(), providers
+                { Name = session.Profile.DisplayName, Service = session.Profile.Service, Enabled = session.Profile.Enabled,
+                    Nickname = session.Profile.Nickname, DefaultName = session.Profile.Name }).ToArray(), providers
         }, WidgetStorage.Json));
     }
 
