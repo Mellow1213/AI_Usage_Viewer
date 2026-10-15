@@ -40,11 +40,16 @@ jobs:
           codesign --verify --deep --strict 'artifacts/macos/AI Usage.app'
       - name: WebKit fixture checks
         run: |
-          open -n 'artifacts/macos/AI Usage.app' --args --data-dir "$PWD/artifacts/macos/ui-test-data" --fixture --smoke-test "$PWD/artifacts/macos/ui-test" --verify-memory
-          for attempt in $(seq 1 180); do
+          mkdir -p artifacts/macos/ui-test
+          'artifacts/macos/AI Usage.app/Contents/MacOS/AIUsageWidget' --data-dir "$PWD/artifacts/macos/ui-test-data" --fixture --smoke-test "$PWD/artifacts/macos/ui-test" --verify-memory > artifacts/macos/ui-test/console.log 2>&1 &
+          app_pid=$!
+          for attempt in $(seq 1 90); do
             test ! -f artifacts/macos/ui-test/smoke.json || break
+            kill -0 "$app_pid" 2>/dev/null || break
             sleep 2
           done
+          cat artifacts/macos/ui-test/console.log
+          test ! -f artifacts/macos/ui-test/progress.json || cat artifacts/macos/ui-test/progress.json
           python3 -c 'import json; r=json.load(open("artifacts/macos/ui-test/smoke.json")); print(r); assert r["passed"]'
       - name: Prepare distribution
         run: |

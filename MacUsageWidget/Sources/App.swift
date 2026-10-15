@@ -537,24 +537,33 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         guard smokeDirectory != nil, !smokeStarted else { return }; smokeStarted = true
         Task {
             do {
+                func checkpoint(_ phase: String) {
+                    if let smokeDirectory { try? JSON.writeObject(["phase": phase], to: smokeDirectory.appendingPathComponent("progress.json")) }
+                }
+                checkpoint("show")
                 showPopover()
                 try await Task.sleep(nanoseconds: 1_000_000_000)
                 let first = try await web.evaluateJavaScript("({text: document.body.innerText, cards: document.querySelectorAll('.provider').length, platform: !!window.aiUsageNative})") as? Object ?? [:]
                 let fastRefresh = try await verifyRefreshRotation(activeMilliseconds: 100)
+                checkpoint("fast-refresh-complete")
                 let compactRotation = try await verifyViewRotation(action: "toggleDetails", clockwise: true)
                 let compact = try await web.evaluateJavaScript("document.querySelector('.compact') !== null && !!document.querySelector('.header .refresh') && !document.querySelector('footer')") as? Bool ?? false
                 let slowRefresh = try await verifyRefreshRotation(activeMilliseconds: 2400)
+                checkpoint("slow-refresh-complete")
                 let hiddenRefresh = try await verifyHiddenRefreshRotation()
                 let interruptedRefresh = try await verifyHiddenRefreshRotation(interrupt: true)
                 let reopenedRefresh = try await verifyRefreshRotation(activeMilliseconds: 100, burst: true)
                 let expandedRotation = try await verifyViewRotation(action: "showFull", clockwise: false)
+                checkpoint("rotations-complete")
                 let layout = try await web.evaluateJavaScript("({viewport: innerHeight, card: document.querySelector('.widget').getBoundingClientRect().bottom, refreshInHeader: !!document.querySelector('.header .refresh'), footerRemoved: !document.querySelector('footer')})") as? Object ?? [:]
                 let snapshot = try await web.takeSnapshot(configuration: nil)
+                checkpoint("snapshot-complete")
                 if let data = snapshot.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data), let png = bitmap.representation(using: .png, properties: [:]), let folder = smokeDirectory {
                     try JSON.writeData(png, to: folder.appendingPathComponent("menu-bar.png"))
                 }
                 let cardFits = (layout["card"] as? Double ?? .infinity) <= (layout["viewport"] as? Double ?? 0) + 2
                 let memory = CommandLine.arguments.contains("--verify-memory") ? try await verifyIdleWebRelease() : ["passed": true, "skipped": true]
+                checkpoint("memory-complete")
                 let passed = memory["passed"] as? Bool == true && first["platform"] as? Bool == true && (first["cards"] as? Int ?? 0) == 2 && compact && cardFits
                     && layout["refreshInHeader"] as? Bool == true && layout["footerRemoved"] as? Bool == true
                     && fastRefresh["passed"] as? Bool == true && slowRefresh["passed"] as? Bool == true
