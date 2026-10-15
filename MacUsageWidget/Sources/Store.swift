@@ -42,7 +42,7 @@ import AppKit
         guard timer == nil, !fixture else { return }
         refreshTask = Task { await refresh() }
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in guard let self, !self.stopped else { return }; self.refreshTask = Task { await self.refresh() } }
+            Task { @MainActor [weak self] in guard let self, !self.stopped else { return }; self.refreshTask = Task { await self.refresh() } }
         }
         timer?.tolerance = 5
     }

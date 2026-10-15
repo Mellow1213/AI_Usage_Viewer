@@ -74,7 +74,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             store.start()
             publish()
             wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in await self?.store.refresh() }
+                Task { @MainActor [weak self] in await self?.store.refresh() }
             }
             if benchmarkDirectory != nil { runMemoryBenchmark() }
             else if smokeDirectory != nil {
@@ -248,7 +248,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         let animate = (connected || iconBusy || iconRefresh.isRunning(at: ProcessInfo.processInfo.systemUptime)) && allowed
         if animate && iconTimer == nil {
             iconTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                Task { @MainActor in guard let self else { return }; self.iconPhase += 0.1; self.updateIconAnimation(); self.drawIcon() }
+                Task { @MainActor [weak self] in guard let self else { return }; self.iconPhase += 0.1; self.updateIconAnimation(); self.drawIcon() }
             }
             iconTimer?.tolerance = 0.02
         } else if !animate { iconTimer?.invalidate(); iconTimer = nil; iconPhase = 0 }
