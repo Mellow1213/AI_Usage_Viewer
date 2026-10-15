@@ -16,12 +16,29 @@
 
 ```powershell
 .\build-widget.ps1 -RestoreUI
-.\run-widget.cmd
+.\run-dev-widget.cmd
 ```
 
 스크립트는 `WidgetUI`에서 `npm ci`와 `npm run build`를 실행한 다음 `dotnet publish`로 `Release/AIUsageWidget.exe`를 생성합니다. .NET 런타임을 포함하는 Windows x64 배포본이며 `Release` 전체가 실행에 필요합니다. 이후 빌드에서는 `-RestoreUI`를 생략할 수 있고, `node_modules`가 없으면 자동으로 의존성을 설치합니다.
 
 AI Usage Viewer의 실행 파일은 `Release/AIUsageWidget.exe`입니다. 기존 삼각형 아이콘, 애니메이션과 `%LOCALAPPDATA%\AIUsageWidget`의 계정 저장 구조를 유지합니다.
+
+### 실사용 설치본과 개발 환경
+
+정식 배포는 [GitHub Releases 배포 가이드](../docs/releasing.md)의 필수 배포 라인을 따릅니다. 앱 변경 시 버전과 릴리스 노트를 올리고, 빌드·검증 후 소스를 커밋·푸시한 다음 실행합니다. 일반 빌드는 설치본이나 배포 피드를 갱신하지 않습니다.
+
+```powershell
+.\publish-widget.ps1 -Version 1.1.1
+.\verify-widget-release.ps1 -Version 1.1.1
+```
+
+설치 폴더는 `%LOCALAPPDATA%\Mellow.AIUsageViewer`이며 기존 `%LOCALAPPDATA%\AIUsageWidget` 계정 데이터는 옮기지 않습니다. `publish-widget.ps1`은 버전별 격리 빌드·패키징, 소스 커밋 연결, GitHub 초안 업로드와 SHA256 검증 후 Latest 공개까지 수행합니다. 이미 공개된 버전은 재사용할 수 없습니다. 다른 PC는 Releases의 `Mellow.AIUsageViewer-win-Setup.exe`를 한 번 설치한 후 앱에서 다운로드·적용합니다.
+
+`run-widget.cmd`는 설치본을 우선 실행합니다. `run-dev-widget.cmd`는 `Release/AIUsageWidget.exe --data-dir artifacts/dev-profile`로 개발 데이터를 분리합니다. 단일 실행 제한은 기본 데이터 폴더에서 이전 버전과 호환되고, 별도 개발 데이터 폴더에서는 독립적입니다. 개발판과 실사용판을 동시에 실행해도 같은 인증 저장소를 공유하지 않습니다.
+
+Velopack SDK와 `vpk`는 1.2.161로 고정합니다. WPF 시작점에서 UI·단일 실행 검사 전에 Velopack 훅을 처리하고 자동 적용은 끕니다. 업데이트 서비스는 시작 시 한 번과 사용자 요청 때만 실행하며 주기 타이머를 만들지 않습니다. 적용 시 `Update.exe`를 대기 상태로 실행한 뒤 정상 종료하여 창 상태 저장·CLI 정리를 마칩니다. 설치·제거·업데이트 훅에서 계정 데이터 삭제나 로그아웃을 실행하지 않습니다.
+
+`update-source.json`의 `source`는 로컬 폴더 또는 HTTPS 피드입니다. 설정이 없거나 정식 저장소·Latest 다운로드 주소이면 공개 GitHub Releases 공급자를 사용합니다. 기존 로컬 피드 설치본은 `use-github-updates.ps1` 실행 후 앱을 한 번 재시작합니다. `publish-widget-local.ps1`은 로컬 테스트용이며 정식 배포를 대신하지 않습니다. 패키지 ID 일치와 Velopack의 크기·해시 검증을 사용합니다. 코드 서명 인증서는 현재 구성하지 않았으며 해시 검증은 게시자 코드 서명과 별개입니다.
 
 ## 소스 구조
 
@@ -36,6 +53,7 @@ AI Usage Viewer의 실행 파일은 `Release/AIUsageWidget.exe`입니다. 기존
 | `UsageWidget/UsageModels.cs` | 사용량·한도 모델과 서비스 응답 파서 |
 | `UsageWidget/DailyUsageTracker.cs`, `MeasurementPreferences.cs` | 관측 변화 기록, 로컬 집계와 측정 설정 |
 | `UsageWidget/WidgetStorage.cs` | 사용자 데이터 저장과 제한된 오류 로그 |
+| `UsageWidget/WidgetUpdates.cs`, `WidgetUI/src/Updates.jsx` | 업데이트 상태·Velopack 연동과 설정 화면 |
 | `WidgetUI/src/main.jsx`, `style.css` | React 카드·설정 화면과 애니메이션 |
 | `WidgetUI/src/displayClock.js` | 카드별 수신 경과 시간·리셋 표시 갱신 일정 |
 | `WidgetVerification` | WPF·WebView2 통합 검증과 성능 측정 |
@@ -61,9 +79,16 @@ UI를 빌드한 다음 저장소 루트에서 실행합니다.
 node --test .\WidgetUI\src\displayClock.test.js
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\widget-verification
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\performance-checks --performance-checks-only
+dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\presence-checks --presence-only
+dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\update-checks --updates-only
+.\verify-widget-update.ps1
 ```
 
 단위 테스트는 표시 시각 경계를, 통합 검증은 데이터 파싱·상태줄 복원·계정 격리·관측 집계·보기 전환 등을 확인합니다. 성능 변경 검증은 동일 상태 전송 생략, 새 데이터 전달, 로고 화면의 시계 해제와 복원을 확인합니다. 결과는 지정한 출력 폴더의 `results.json`에 저장합니다. 기본 검증은 예시 데이터와 별도 Claude 설정 파일을 사용합니다.
+
+로고 표시 검증은 카드·로고 고정 분리, 이전 설정 파일 호환, 비활성화 창 스타일, 우클릭 메뉴, 트레이 복원, 임시 숨김 만료와 설정 저장을 확인합니다. 별도 프로세스의 전체 화면 창을 잠시 열어 전체 화면 숨김·자동 복원 시 입력 포커스 유지도 확인합니다.
+
+업데이트 검증은 실패·재시도, 중복 확인 방지, 다운로드 후 명시적 적용, 종료 시 취소, 계정 설정 보존과 실제 React 버튼을 확인합니다. `verify-widget-update.ps1`은 별도 패키지 ID·격리된 설치 폴더를 사용해 두 버전을 실제 설치·업데이트하고 손상된 패키지 거부와 데이터 보존을 검증합니다. 실제 사용자 계정이나 기본 설치본은 사용하지 않습니다.
 
 실제 Codex CLI의 현재 로그인 계정을 조회하는 검증은 별도로 실행합니다.
 
@@ -140,9 +165,9 @@ Windows 아이콘은 16~256px의 10개 해상도를 포함하며, 벡터 원본�
 ## 배포와 소스 공유
 
 - `UsageWidget`, `WidgetUI`, `WidgetVerification`, `docs`는 소스·검증·문서입니다.
-- `Release`는 런타임을 포함한 실행용 EXE·DLL·웹 파일이며 이 저장소에서는 Git에 함께 추가합니다.
+- `Release`는 런타임을 포함한 개발 실행용 EXE·DLL·웹 파일입니다. 이전 배포본이 Git에 추적되어 있지만 새 배포에서는 생성된 바이너리를 소스 커밋에 추가하지 않습니다.
 - 소스를 수정해 실행본을 갱신할 때는 `build-widget.ps1`을 사용합니다.
 - `artifacts`, `bin`, `obj`, `node_modules`, `WidgetUI/dist`는 Git에서 제외합니다.
-- 공개 실행 배포에는 publish 결과인 `Release` 폴더 전체를 포함합니다. 사용자 프로필·계정 파일·관측 기록은 포함하지 않습니다.
+- 정식 배포는 [배포 가이드](../docs/releasing.md)에 따라 GitHub Releases에 설치 파일·업데이트 패키지·피드를 게시합니다. 사용자 프로필·계정 파일·관측 기록은 포함하지 않습니다.
 
 프로젝트는 `.pdb`의 publish 복사를 막고, publish 완료 시 이전 빌드에서 남은 `.pdb`도 제거합니다. 컴파일러 소스 경로는 가상 경로로 매핑하며 로컬 개발용 심볼은 `bin`에 유지합니다.

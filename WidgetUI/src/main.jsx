@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { animate, AnimatePresence, motion, useMotionValue, useSpring, useTransform } from 'motion/react';
 import { ArrowDownLeft, ArrowDownRight, ArrowUpLeft, ArrowUpRight, Check, ChevronDown, CirclePlus, Clock3, Grip, Link2, MoreHorizontal, Pin, Plus, RefreshCw, Rows3, LayoutPanelTop, Unplug, UserRound, X } from 'lucide-react';
 import './style.css';
+import { UpdateSettings } from './Updates.jsx';
 import { nextDisplayDelay } from './displayClock.js';
 
 const native = window.chrome?.webview;
@@ -391,13 +392,17 @@ function App() {
     else if (name === 'toggleLogo') setState(s => { const current = s.viewMode ?? 0; const next = current === 2 ? s.lastCardView ?? 0 : 2; return { ...s, viewMode: next, lastCardView: current === 2 ? next : current, collapsed: next !== 0 }; });
     else if (name === 'toggleDetails' || name === 'showFull') setState(s => { const next = name === 'showFull' ? 0 : s.viewMode === 0 ? 1 : 0; return { ...s, viewMode: next, lastCardView: next, collapsed: next !== 0 }; });
     else if (name === 'pin') setState(s => ({ ...s, pinned: !s.pinned }));
+    else if (name === 'toggleLogoPin') setState(s => ({ ...s, logoPinned: s.logoPinned === false }));
+    else if (name === 'toggleFullscreenHide') setState(s => ({ ...s, hideLogoInFullscreen: s.hideLogoInFullscreen === false }));
     else if (name === 'dock') setState(s => ({ ...s, anchorCorner: extra.corner ?? 1 }));
     else if (name === 'toggleMotion') setState(s => ({ ...s, animateTransitions: s.animateTransitions === false }));
+    else if (name === 'checkUpdates') setState(s => ({ ...s, update: { phase: 'upToDate', currentVersion: '1.1.0', message: '디자인 미리보기입니다. 실제 업데이트는 설치된 앱에서 확인해주세요.', canCheck: true } }));
     else if (name === 'refresh' && preview) { setState(s => ({ ...s, busy: true })); setTimeout(() => setState(s => ({ ...s, busy: false })), 2200); }
   };
   const openAccounts = () => { if (mode !== 0) action('showFull'); setMenuPage('accounts'); setMenu(true); };
   const openPicker = () => { if (mode !== 0) action('showFull'); setMenuPage('providers'); setMenu(true); };
   const openMeasurements = () => { if (mode !== 0) action('showFull'); setMenuPage('measurement'); setMenu(true); };
+  const openUpdates = () => { if (mode !== 0) action('showFull'); setMenuPage('updates'); setMenu(true); };
   const changeMeasurement = (kind, minutes) => {
     if (native) send(kind === 'window' ? 'setMeasurementWindow' : 'setMeasurementInterval', { minutes });
     else setState(s => ({ ...s, [kind === 'window' ? 'measurementWindowMinutes' : 'measurementIntervalMinutes']: minutes }));
@@ -439,16 +444,17 @@ function App() {
   };
   return <div className={`view-shell ${changing ? 'is-transitioning' : ''} ${logoMoving ? 'is-logo-moving' : ''}`} ref={panel}><AnimatePresence initial={false} mode="popLayout">
   {mode === 2 ? <motion.div key="logo" data-view={mode} className="logo-shell" role="button" tabIndex={0} aria-label="이전 카드로 돌아가기"
-    title={`${state.lastCardView === 1 ? '간략히' : '자세히'} 보기로 돌아가기 · 드래그해서 이동`} onClick={() => action('toggleLogo')}
-    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); action('toggleLogo'); } }}
+    title={`${state.lastCardView === 1 ? '간략히' : '자세히'} 보기로 돌아가기 · 드래그해서 이동 · 우클릭으로 로고 설정`} onClick={() => action('toggleLogo')}
+    onContextMenu={event => { event.preventDefault(); action('logoMenu'); }}
+    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); action('toggleLogo'); } else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); action('logoMenu'); } }}
     initial={transitionReduce ? false : { opacity: 0 }} animate={{ opacity: changing ? 0 : 1 }} exit={{ opacity: 0, transition: { duration: transitionReduce ? 0 : .08 } }} transition={{ duration: transitionReduce ? 0 : .08 }}>
     <Triangle connected={allConnected} active={!logoMoving && (state.busy || state.authBusy)} rotation={logoRotation} />
-  </motion.div> : <motion.div key={`card-${mode}`} data-view={mode} className="widget" style={{ '--card-max-height': `${(state.maxCardHeight ?? 880) - 2}px`, ...(native ? { width: 302 } : {}), ...(menu ? { minHeight: Math.min((state.maxCardHeight ?? 880) - 2, menuPage === 'accounts' ? 510 : menuPage === 'measurement' ? 520 : menuPage === 'providers' ? state.providers.length === 0 ? 310 : 410 + (state.providers.length - 1) * 30 : 520) } : {}) }}
+  </motion.div> : <motion.div key={`card-${mode}`} data-view={mode} className="widget" style={{ '--card-max-height': `${(state.maxCardHeight ?? 880) - 2}px`, ...(native ? { width: 302 } : {}), ...(menu ? { minHeight: Math.min((state.maxCardHeight ?? 880) - 2, menuPage === 'accounts' ? 510 : menuPage === 'measurement' ? 520 : menuPage === 'providers' ? state.providers.length === 0 ? 310 : 410 + (state.providers.length - 1) * 30 : menuPage === 'updates' ? 530 : 650) } : {}) }}
     initial={transitionReduce ? false : { opacity: 0, y: 4 }} animate={{ opacity: changing ? 0 : 1, y: changing ? 4 : 0 }} exit={{ opacity: 0, transition: { duration: transitionReduce ? 0 : .08 } }}
     transition={{ duration: transitionReduce ? 0 : changing ? .08 : .13, ease: [.22, 1, .36, 1] }}>
     <header className="header">
       <div className="drag-zone" title="드래그해서 이동"><button className="logo-toggle" aria-label="로고만 표시" title="로고만 표시 · 다시 누르면 이 화면으로 돌아오기" onClick={() => { setMenu(false); action('toggleLogo'); }}><Triangle connected={allConnected} active={!logoMoving && (state.busy || state.authBusy)} rotation={logoRotation} /></button><div className="wordmark">AI<span>USAGE</span></div><Grip className="grip" size={13} /></div>
-      <div className="header-actions"><button className={`icon-button ${state.pinned ? 'selected' : ''}`} title={state.pinned ? '항상 위 고정 해제' : '항상 위에 고정'} aria-label="항상 위에 고정" aria-pressed={state.pinned} onClick={() => action('pin')}><Pin size={13} /></button><button className="icon-button" title="AI 추가·제거" aria-label="AI 추가" onClick={openPicker}><CirclePlus size={14} /></button><button className="icon-button view-toggle" title={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-label={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-pressed={mode === 0} onClick={() => { setMenu(false); action('toggleDetails'); }}>{mode === 0 ? <Rows3 size={14} /> : <LayoutPanelTop size={14} />}</button><button className={`icon-button ${menu ? 'selected' : ''}`} title="설정" aria-label="설정" onClick={() => { setMenuPage('settings'); setMenu(!menu); }}><MoreHorizontal size={17} /></button></div>
+      <div className="header-actions"><button className={`icon-button ${state.pinned ? 'selected' : ''}`} title={state.pinned ? '항상 위 고정 해제' : '항상 위에 고정'} aria-label="항상 위에 고정" aria-pressed={state.pinned} onClick={() => action('pin')}><Pin size={13} /></button><button className="icon-button" title="AI 추가·제거" aria-label="AI 추가" onClick={openPicker}><CirclePlus size={14} /></button><button className="icon-button view-toggle" title={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-label={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-pressed={mode === 0} onClick={() => { setMenu(false); action('toggleDetails'); }}>{mode === 0 ? <Rows3 size={14} /> : <LayoutPanelTop size={14} />}</button><button className={`icon-button ${menu ? 'selected' : ''} ${state.update?.canDownload || state.update?.canApply ? 'has-update' : ''}`} title={state.update?.canApply ? '설정 · 업데이트 적용 대기' : state.update?.canDownload ? '설정 · 새 버전 있음' : '설정'} aria-label="설정" onClick={() => { setMenuPage('settings'); setMenu(!menu); }}><MoreHorizontal size={17} /></button></div>
     </header>
       {state.providers.length === 0 ? <EmptyDashboard onAdd={openPicker} /> : mode === 1 ? <motion.div key="compact" className="compact" data-count={state.providers.length} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : .14 }}>
         {state.providers.map(p => <CompactProvider key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} intervalMinutes={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} />)}
@@ -459,11 +465,14 @@ function App() {
     {preview && <div className="preview-label">디자인 미리보기 · 예시 데이터</div>}
     <AnimatePresence>{menu && <motion.div className="menu-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMenu(false)}>
       <motion.div className="menu" initial={{ y: -8, scale: .97 }} animate={{ y: 0, scale: 1 }} exit={{ y: -8, scale: .97 }} transition={{ duration: reduce ? 0 : .2 }} onClick={e => e.stopPropagation()}>
-        <div className="menu-title">{menuPage === 'accounts' ? '계정 연결' : menuPage === 'providers' ? 'AI 추가' : menuPage === 'measurement' ? '사용량 측정' : '카드 설정'}<button className="icon-button" aria-label="설정 닫기" onClick={() => setMenu(false)}><X size={14} /></button></div>
-        {menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} /> : menuPage === 'providers' ? <ProviderPicker state={state} onAdd={addProvider} onRemove={removeProvider} onRestore={restoreProvider} /> : menuPage === 'accounts' ? <Accounts state={state} onAdd={openPicker} onRestore={restoreProvider} onRename={renameAccount} /> : <>
+        <div className="menu-title">{menuPage === 'updates' ? '앱 업데이트' : menuPage === 'accounts' ? '계정 연결' : menuPage === 'providers' ? 'AI 추가' : menuPage === 'measurement' ? '사용량 측정' : '카드 설정'}<button className="icon-button" aria-label="설정 닫기" onClick={() => setMenu(false)}><X size={14} /></button></div>
+        {menuPage === 'updates' ? <UpdateSettings update={state.update} onAction={action} authBusy={state.authBusy} /> : menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} /> : menuPage === 'providers' ? <ProviderPicker state={state} onAdd={addProvider} onRemove={removeProvider} onRestore={restoreProvider} /> : menuPage === 'accounts' ? <Accounts state={state} onAdd={openPicker} onRestore={restoreProvider} onRename={renameAccount} /> : <>
         <button className="menu-row" onClick={openPicker}><Plus size={14} />AI 추가·제거</button>
+        <button className="menu-row" aria-label="앱 업데이트 설정" onClick={openUpdates}><RefreshCw size={14} />앱 업데이트<span className="measurement-menu-value">{state.update?.canApply ? '적용 대기' : state.update?.canDownload ? '새 버전' : `v${state.update?.currentVersion ?? '1.1.0'}`}</span></button>
         <button className="menu-row" aria-label="사용량 측정 설정" onClick={openMeasurements}><Clock3 size={14} />사용량 측정 설정<span className="measurement-menu-value">{measurementLabel(state.measurementIntervalMinutes ?? 30)}</span></button>
-        <button className="menu-row" onClick={() => action('pin')}><Pin size={14} />항상 위에 표시{state.pinned && <Check size={13} />}</button>
+        <button className="menu-row" onClick={() => action('pin')}><Pin size={14} />카드 항상 위에 표시{state.pinned && <Check size={13} />}</button>
+        <button className="menu-row" aria-label="로고 항상 위에 표시" aria-pressed={state.logoPinned !== false} onClick={() => action('toggleLogoPin')}><Pin size={14} />로고 항상 위에 표시{state.logoPinned !== false && <Check size={13} />}</button>
+        <button className="menu-row" aria-label="전체 화면에서 로고 숨기기" aria-pressed={state.hideLogoInFullscreen !== false} onClick={() => action('toggleFullscreenHide')}><ChevronDown size={14} />전체 화면에서 로고 숨기기{state.hideLogoInFullscreen !== false && <Check size={13} />}</button>
         <button className="menu-row" aria-label="부드러운 펼치기·접기" aria-pressed={state.animateTransitions !== false} onClick={() => action('toggleMotion')}><ChevronDown size={14} />부드러운 펼치기·접기{state.animateTransitions !== false && <Check size={13} />}</button>
         <div className="dock-heading">화면 모서리<span>드래그 위치에 따라 자동 전환</span></div>
         <div className="dock-options" role="group" aria-label="화면 모서리">{cornerOptions.map(({ id, label, Icon }) => <button key={id} className="dock-option" aria-label={`${label}에 붙이기`} aria-pressed={(state.anchorCorner ?? 1) === id} onClick={() => { action('dock', { corner: id }); setMenu(false); }}><Icon size={12} />{label}</button>)}</div>

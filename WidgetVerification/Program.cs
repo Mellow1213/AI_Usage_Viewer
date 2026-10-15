@@ -5,7 +5,7 @@ using System.Windows;
 using Microsoft.Web.WebView2.Core;
 using UsageWidget;
 
-internal static class Program
+internal static partial class Program
 {
     private static readonly List<string> Passed = [];
     private static string _output = "";
@@ -14,9 +14,13 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        Velopack.VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
+        if (args.Length > 0 && args[0] == "--github-release") return VerifyGithubReleaseAsync(args).GetAwaiter().GetResult();
+        if (args.Length > 0 && args[0] == "--update-e2e") return RunPackagedUpdateScenario(args);
         if (args.Contains("--rpc-fixture")) return RunRpcFixture();
         if (args.Contains("--claude-usage-fixture")) return RunClaudeUsageFixture(args.Contains("--unsupported"));
         if (args.Contains("--claude-account-fixture")) return RunClaudeAccountFixture();
+        if (args.Contains("--presence-fixture")) return RunPresenceFixture(args);
         _output = Path.GetFullPath(args.FirstOrDefault() ?? "artifacts/widget-verification");
         Directory.CreateDirectory(_output);
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -25,7 +29,9 @@ internal static class Program
             string? error = null;
             try
             {
-                if (args.Contains("--performance-only")) await MeasurePerformanceAsync();
+                if (args.Contains("--updates-only")) await VerifyUpdatesAsync();
+                else if (args.Contains("--presence-only")) await VerifyPresenceAsync();
+                else if (args.Contains("--performance-only")) await MeasurePerformanceAsync();
                 else if (args.Contains("--performance-checks-only")) await VerifyPerformanceChangesAsync();
                 else if (args.Contains("--multi-ai-only")) await VerifyMultipleAiAsync();
                 else if (args.Contains("--multi-codex-only")) await VerifyMultipleCodexAsync();

@@ -218,3 +218,19 @@ footer { height: 34px; }
 .compact-name .provider-plan { flex: 0 4 auto; }
 .account-box-head > strong { display: flex; }
 .selected-provider > span { display: flex; }
+
+.update-versions { margin: 14px 0; font-size: 11px; }
+.update-versions > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 9px 0; }
+.update-versions dt { color: #9da995; }
+.update-versions dd { margin: 0; color: #c4e8a1; font-variant-numeric: tabular-nums; }
+.menu .update-message { padding: 10px; background: #c4e8a109; border: 1px solid #c4e8a11a; border-radius: 8px; }
+.menu .update-message.failed { color: #e5ba9c; border-color: #e5ba9c30; }
+.update-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 15px; }
+.update-actions button { margin: 0; justify-content: center; }
+.update-progress { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #c4e8a1; }
+.update-progress progress { flex: 1; min-width: 0; height: 7px; accent-color: #c4e8a1; }
+.update-notes h3 { font-size: 10px; font-weight: 500; color: #bec9b7; }
+.update-notes pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 10px; line-height: 1.7; max-height: 160px; overflow-y: auto; color: #a4b09d; }
+.menu .update-checked { font-size: 9px; color: #84907d; }
+.icon-button.has-update { position: relative; }
+.icon-button.has-update::after { content: ''; position: absolute; top: 3px; right: 3px; width: 4px; height: 4px; border-radius: 50%; background: #c4e8a1; }

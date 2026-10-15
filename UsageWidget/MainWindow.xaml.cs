@@ -26,6 +26,9 @@ public partial class MainWindow : Window
     private ConnectionPreferences _connections;
     private DashboardPreferences _dashboard;
     private MeasurementPreferences _measurement;
+    private readonly WidgetUpdater _updates;
+    private bool _startupUpdateCheckStarted;
+    private readonly bool _checkUpdatesOnStartup;
     private CancellationTokenSource? _loginCancellation;
     private string? _loginProvider;
     private string? _codexLoginUrl;
@@ -72,12 +75,14 @@ public partial class MainWindow : Window
     internal string WidgetAddress => _widgetUrl;
 
     public MainWindow() : this(GetDataDirectory()) { }
-    internal MainWindow(string dataDirectory, bool testMode = false, string? claudeSettings = null, Func<CodexProfile, CodexClient>? codexFactory = null, Action<string>? openCodexLogin = null, Func<AiAccountProfile, ClaudeAuthClient>? claudeFactory = null)
+    internal MainWindow(string dataDirectory, bool testMode = false, string? claudeSettings = null, Func<CodexProfile, CodexClient>? codexFactory = null, Action<string>? openCodexLogin = null, Func<AiAccountProfile, ClaudeAuthClient>? claudeFactory = null, WidgetUpdater? updates = null, bool? checkUpdatesOnStartup = null, Func<IntPtr>? foregroundWindow = null)
     {
         InitializeComponent();
         _dataDirectory = dataDirectory;
         _daily = new(dataDirectory);
         _testMode = testMode;
+        _checkUpdatesOnStartup = checkUpdatesOnStartup ?? !testMode;
+        _foregroundWindow = foregroundWindow ?? GetForegroundWindow;
         _codexFactory = codexFactory;
         _claudeFactory = claudeFactory;
         _claudeSettingsOverride = claudeSettings;
@@ -89,6 +94,8 @@ public partial class MainWindow : Window
         _sessions = _accountProfiles.Profiles.ToDictionary(profile => profile.Id, CreateSession);
         _dashboard = DashboardPreferences.Read(dataDirectory, _connections);
         _measurement = MeasurementPreferences.Read(dataDirectory);
+        _updates = updates ?? new WidgetUpdater(dataDirectory);
+        _updates.Changed += () => { if (!_closed) Publish(); };
         Browser.DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 17, 19, 22);
         SourceInitialized += (_, _) =>
         {
@@ -96,6 +103,7 @@ public partial class MainWindow : Window
             DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 33, ref round, sizeof(int));
             HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WindowProc);
             RestorePosition();
+            InitializePresence();
         };
         SizeChanged += (_, _) => Surface.Clip = new RectangleGeometry(new Rect(0, 0, ActualWidth, ActualHeight), 22, 22);
         Loaded += async (_, _) => await InitializeAsync();
@@ -113,7 +121,9 @@ public partial class MainWindow : Window
             _closed = true;
             StopResize();
             _timer.Stop();
+            DisposePresence();
             _lifetime.Cancel();
+            _updates.Dispose();
             foreach (var session in _sessions.Values) session.Dispose();
             SavePosition();
             Browser.Dispose();
@@ -159,6 +169,12 @@ public partial class MainWindow : Window
                 if (e.Uri != _widgetUrl) { _blockedNavigations.Add(e.NavigationId); e.Cancel = true; }
             };
             web.NewWindowRequested += (_, e) => e.Handled = true;
+            web.ContextMenuRequested += (_, e) =>
+            {
+                if (_viewMode != WidgetViewMode.Logo) return;
+                e.Handled = true;
+                Dispatcher.BeginInvoke(ShowLogoMenu);
+            };
             web.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
             web.WebMessageReceived += WebMessageReceived;
             web.ProcessFailed += (_, _) => ShowError("화면 엔진이 종료됐습니다. 앱을 다시 실행해주세요.");
@@ -195,9 +211,21 @@ public partial class MainWindow : Window
                     foreach (var session in _sessions.Values) session.Usage = NotConnected(session.Profile.Id);
                     Publish(force: true);
                     _timer.Start();
+                    UpdatePresence();
+                    if (_checkUpdatesOnStartup && !_startupUpdateCheckStarted)
+                    {
+                        _startupUpdateCheckStarted = true;
+                        _ = Dispatcher.BeginInvoke(async () => await _updates.CheckAsync(), DispatcherPriority.ApplicationIdle);
+                    }
                     if (!_testMode && _dashboard.ProviderIds.Length > 0) await RefreshAsync();
                     break;
                 case "refresh": await RefreshAsync(true); break;
+                case "checkUpdates": await _updates.CheckAsync(); break;
+                case "downloadUpdate": await _updates.DownloadAsync(); break;
+                case "applyUpdate":
+                    if (AuthBusy) { _notice = "로그인을 완료하거나 취소한 뒤 업데이트를 적용해주세요."; Publish(); }
+                    else if (_updates.PrepareRestart()) Close();
+                    break;
                 case "setMeasurementInterval":
                 case "setMeasurementWindow":
                     if (root.TryGetProperty("minutes", out var intervalValue) && intervalValue.TryGetInt32(out var minutes)
@@ -237,7 +265,10 @@ public partial class MainWindow : Window
                     if (root.TryGetProperty("nickname", out var nicknameValue) && nicknameValue.ValueKind == JsonValueKind.String)
                         SetAccountNickname(AccountTarget(root), nicknameValue.GetString());
                     break;
-                case "pin": Topmost = !Topmost; SavePosition(); Publish(); break;
+                case "pin": ToggleCardPin(); break;
+                case "toggleLogoPin": ToggleLogoPin(); break;
+                case "toggleFullscreenHide": ToggleFullscreenHide(); break;
+                case "logoMenu": if (_viewMode == WidgetViewMode.Logo) ShowLogoMenu(); break;
                 case "toggleMotion":
                     _animateTransitions = !_animateTransitions;
                     _reducedMotion = !_animateTransitions;
@@ -492,11 +523,13 @@ public partial class MainWindow : Window
         }).ToArray();
         var payload = JsonSerializer.Serialize(new
         {
-            busy = _busy, pinned = Topmost, collapsed = _viewMode != WidgetViewMode.Expanded, viewMode = (int)_viewMode, viewRevision = _viewRevision,
+            busy = _busy, pinned = _cardPinned, logoPinned = _logoPinned, hideLogoInFullscreen = _hideLogoInFullscreen,
+            collapsed = _viewMode != WidgetViewMode.Expanded, viewMode = (int)_viewMode, viewRevision = _viewRevision,
             bridgeInstalled = Claude.Installed, notice = _notice, authBusy = AuthBusy, loginProvider = _loginProvider,
             animateTransitions = _animateTransitions, transitionPhase = _transitionPhase, transitionFrom = (int)_transitionFrom,
             logoRotation = _logoRotation, logoRotationStep = _logoRotationStep, anchorCorner = (int)_anchorCorner, lastCardView = (int)_lastCardView,
             measurementIntervalMinutes = _measurement.IntervalMinutes, measurementWindowMinutes = _measurement.WindowMinutes,
+            update = _updates.State,
             maxCardHeight = MaximumCardHeight(), serviceCatalog = AiServices.Catalog,
             accounts = _sessions.Values.Select(session => session.Account with
                 { Name = session.Profile.DisplayName, Service = session.Profile.Service, Enabled = session.Profile.Enabled,
@@ -581,7 +614,9 @@ public partial class MainWindow : Window
                 : state.LastCardView is >= 0 and <= 1 ? (WidgetViewMode)state.LastCardView.Value : WidgetViewMode.Compact;
             if (_viewMode == WidgetViewMode.Logo) { Width = 48; Height = 48; }
             else if (_viewMode == WidgetViewMode.Compact) Height = 160;
-            Topmost = state.Pinned;
+            _cardPinned = state.Pinned;
+            _logoPinned = state.LogoPinned ?? true;
+            _hideLogoInFullscreen = state.HideLogoInFullscreen ?? true;
             _animateTransitions = state.AnimateTransitions ?? true;
             if (state.AnchorCorner is >= 0 and <= 3) _anchorCorner = (WidgetAnchorCorner)state.AnchorCorner.Value;
             _reducedMotion = !_animateTransitions;
@@ -634,7 +669,7 @@ public partial class MainWindow : Window
         try
         {
             if (GetWindowRect(new WindowInteropHelper(this).Handle, out var rect))
-                WidgetStorage.Write(Path.Combine(_dataDirectory, "window-state.json"), new SavedWindow(rect.Left, rect.Top, Topmost, _viewMode != WidgetViewMode.Expanded, (int)_viewMode, _animateTransitions, (int)_anchorCorner, (int)_lastCardView));
+                WidgetStorage.Write(Path.Combine(_dataDirectory, "window-state.json"), new SavedWindow(rect.Left, rect.Top, _cardPinned, _viewMode != WidgetViewMode.Expanded, (int)_viewMode, _animateTransitions, (int)_anchorCorner, (int)_lastCardView, _logoPinned, _hideLogoInFullscreen));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { WidgetStorage.Log("Window position save failed", ex); }
     }
@@ -653,6 +688,8 @@ public partial class MainWindow : Window
         _logoRotationStep = mode > _viewMode ? 120 : -120;
         _logoRotation += _logoRotationStep;
         _viewMode = mode;
+        if (mode != WidgetViewMode.Logo) _hiddenUntil = null;
+        ApplyPresencePolicy();
         _viewRevision++;
         _transitionPhase = _animateTransitions ? "hiding" : "settled";
         if (!_animateTransitions) ResizeTo(mode == WidgetViewMode.Logo ? 48 : 304, TargetHeight());
@@ -665,6 +702,7 @@ public partial class MainWindow : Window
     {
         if (_transitionPhase != "resizing") return;
         _transitionPhase = "settled";
+        UpdatePresence();
         Publish();
     }
 
@@ -777,6 +815,16 @@ public partial class MainWindow : Window
 
     internal IntPtr WindowProc(IntPtr handle, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (_viewMode == WidgetViewMode.Logo && message == 0x0021) // WM_MOUSEACTIVATE
+        {
+            handled = true;
+            return new IntPtr(3); // MA_NOACTIVATE: allow the click/drag without taking keyboard focus.
+        }
+        if (_viewMode == WidgetViewMode.Logo && message is 0x00A5 or 0x007B) // WM_NCRBUTTONUP / WM_CONTEXTMENU
+        {
+            handled = true;
+            Dispatcher.BeginInvoke(ShowLogoMenu);
+        }
         if (message == 0x0231 && GetWindowRect(handle, out var bounds)) { StopResize(); _moveStart = bounds; } // WM_ENTERSIZEMOVE
         if (message == 0x0232) // WM_EXITSIZEMOVE
         {
@@ -801,10 +849,10 @@ public partial class MainWindow : Window
         return IntPtr.Zero;
     }
 
-    private sealed record SavedWindow(int Left, int Top, bool Pinned, bool Collapsed, int? ViewMode = null, bool? AnimateTransitions = null, int? AnchorCorner = null, int? LastCardView = null);
+    private sealed record SavedWindow(int Left, int Top, bool Pinned, bool Collapsed, int? ViewMode = null, bool? AnimateTransitions = null, int? AnchorCorner = null, int? LastCardView = null, bool? LogoPinned = null, bool? HideLogoInFullscreen = null);
     internal sealed record ResizeFrameSample(int Revision, double ElapsedMs, double WorkMs, double Width, double Height,
         bool ViewportFrozen, double ViewportWidth, double ViewportHeight);
-    [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] internal struct NativeRect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct MonitorInfo { public int Size; public NativeRect Monitor, Work; public uint Flags; }
     [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
     [DllImport("user32.dll")] private static extern IntPtr MonitorFromRect(ref NativeRect rect, uint flags);

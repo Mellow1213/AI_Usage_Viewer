@@ -1,9 +1,21 @@
 using System.Windows;
+using System.Security.Cryptography;
+using System.Text;
+using Velopack;
 
 namespace UsageWidget;
 
 public partial class App : Application
 {
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
+        var app = new App();
+        app.InitializeComponent();
+        app.Run();
+    }
+
     private Mutex? _mutex;
     private bool _owner;
     protected override void OnStartup(StartupEventArgs e)
@@ -20,7 +32,11 @@ public partial class App : Application
             catch (Exception error) { WidgetStorage.Log("Claude bridge setup failed", error); Shutdown(1); }
             return;
         }
-        _mutex = new Mutex(true, @"Local\AIUsageWidget", out _owner);
+        // Development profiles may run beside the installed app without sharing credentials.
+        var directory = System.IO.Path.GetFullPath(UsageWidget.MainWindow.GetDataDirectory()).TrimEnd('\\', '/').ToUpperInvariant();
+        var identity = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(directory)))[..24];
+        var standardDirectory = System.IO.Path.GetFullPath(WidgetStorage.DataDirectory).TrimEnd('\\', '/').ToUpperInvariant();
+        _mutex = new Mutex(true, directory == standardDirectory ? @"Local\AIUsageWidget" : @"Local\AIUsageWidget-" + identity, out _owner);
         if (!_owner) { MessageBox.Show("사용량 카드가 이미 실행 중입니다.", "AI Usage"); Shutdown(); return; }
         DispatcherUnhandledException += (_, error) =>
         {

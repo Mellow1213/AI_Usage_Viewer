@@ -1,4 +1,4 @@
-param([switch]$RestoreUI)
+param([switch]$RestoreUI, [ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$')][string]$Version, [string]$OutputDirectory = (Join-Path $PSScriptRoot 'Release'))
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 Push-Location (Join-Path $projectRoot 'WidgetUI')
@@ -10,7 +10,9 @@ try {
     & npm.cmd run build
     if ($LASTEXITCODE -ne 0) { throw 'React UI build failed.' }
 } finally { Pop-Location }
-$publishDirectory = Join-Path $projectRoot 'Release'
-& dotnet publish (Join-Path $projectRoot 'UsageWidget\UsageWidget.csproj') -c Release -r win-x64 --self-contained true -o $publishDirectory --ignore-failed-sources
+$publishDirectory = [IO.Path]::GetFullPath($OutputDirectory)
+$publishArguments = @('publish', (Join-Path $projectRoot 'UsageWidget\UsageWidget.csproj'), '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-o', $publishDirectory, '--ignore-failed-sources')
+if ($Version) { $publishArguments += "-p:Version=$Version" }
+& dotnet @publishArguments
 if ($LASTEXITCODE -ne 0) { throw 'WPF publish failed.' }
 Write-Host ('Built: ' + (Join-Path $publishDirectory 'AIUsageWidget.exe'))
