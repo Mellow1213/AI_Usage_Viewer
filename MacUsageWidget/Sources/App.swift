@@ -291,13 +291,17 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             return Math.atan2(matrix.b, matrix.a) * 180 / Math.PI;
           };
           const result = window.__refreshRotation = { frames: 0, total: 0, minimumStep: 0, maximumTurn: 0, finished: false,
-            initial: { visible: window.aiUsageNative.visible, hidden: document.hidden, transitioning: !!document.querySelector('.is-logo-moving') } };
+            initial: { visible: window.aiUsageNative.visible, hidden: document.hidden, reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+              transitioning: !!document.querySelector('.is-logo-moving') }, sawBusy: false, sawSyncing: false, maximumAnimations: 0 };
           let previous = readAngle();
           const started = performance.now();
           const sample = now => {
             const angle = readAngle(), step = ((angle - previous + 540) % 360) - 180;
             result.total += step; result.minimumStep = Math.min(result.minimumStep, step);
             result.maximumTurn = Math.max(result.maximumTurn, result.total); result.frames++; previous = angle;
+            result.sawBusy ||= logo.getAttribute('aria-label') === '갱신 중';
+            result.sawSyncing ||= logo.classList.contains('syncing');
+            result.maximumAnimations = Math.max(result.maximumAnimations, logo.getAnimations().length);
             if (now - started < \(sampleMilliseconds)) requestAnimationFrame(sample);
             else result.finished = true;
           };
@@ -537,7 +541,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         guard smokeDirectory != nil, !smokeStarted else { return }; smokeStarted = true
         Task {
             do {
-                func checkpoint(_ phase: String) {
+                @MainActor func checkpoint(_ phase: String) {
                     if let smokeDirectory { try? JSON.writeObject(["phase": phase], to: smokeDirectory.appendingPathComponent("progress.json")) }
                 }
                 checkpoint("show")
