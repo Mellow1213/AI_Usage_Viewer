@@ -19,6 +19,7 @@ CodexClient Client(string name, string mode = "normal") => new(Path.Combine(root
     info.Environment["AI_USAGE_PROCESS_FIXTURE"] = mode;
     return info;
 });
+QuotaResetChecks.Run(Path.Combine(root, "quota-resets"), Check);
 async Task Stopped(int pid)
 {
     for (var attempt = 0; attempt < 100; attempt++)

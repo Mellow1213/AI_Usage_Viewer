@@ -40,6 +40,8 @@ Velopack SDK와 `vpk`는 1.2.161로 고정합니다. WPF 시작점에서 UI·단
 
 `update-source.json`의 `source`는 로컬 폴더 또는 HTTPS 피드입니다. 설정이 없거나 정식 저장소·Latest 다운로드 주소이면 공개 GitHub Releases 공급자를 사용합니다. 기존 로컬 피드 설치본은 `use-github-updates.ps1` 실행 후 앱을 한 번 재시작합니다. `publish-widget-local.ps1`은 로컬 테스트용이며 정식 배포를 대신하지 않습니다. 패키지 ID 일치와 Velopack의 크기·해시 검증을 사용합니다. 코드 서명 인증서는 현재 구성하지 않았으며 해시 검증은 게시자 코드 서명과 별개입니다.
 
+베타는 [베타 배포 절차](../docs/releasing.md#베타-배포)를 따릅니다. `-beta.<번호>` 빌드만 사전 릴리스 업데이트를 포함하며 정식 설치본의 Latest 경로는 유지합니다.
+
 ## 소스 구조
 
 | 경로 | 역할 |

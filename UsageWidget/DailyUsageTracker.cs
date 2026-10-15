@@ -52,7 +52,8 @@ internal sealed class DailyUsageTracker
             if (!account.Windows.TryGetValue(quota.Key, out var history))
             {
                 history = new DailyWindow { Label = quota.Label, LastUsed = used, ResetsAt = quota.ResetsAt, LastSample = sample, ObservedSince = sample };
-                if (previousDay?.TryGetValue(quota.Key, out var previous) == true && previous.Label == quota.Label)
+                if (previousDay?.TryGetValue(quota.Key, out var previous) == true && previous.Label == quota.Label &&
+                    !WasReplenished(previous, used, quota.ResetsAt, sample))
                 {
                     // Keep rolling history and the measurement clock across midnight.
                     // Only the calendar-day accumulator and its painted segment reset.
@@ -67,19 +68,12 @@ internal sealed class DailyUsageTracker
             }
             else if (sample > history.LastSample)
             {
-                if (history.Label != quota.Label)
+                if (history.Label != quota.Label || WasReplenished(history, used, quota.ResetsAt, sample))
                 {
-                    // A quota with a different duration has a different percentage basis.
+                    // Replenishment starts a new baseline and clears measured/pending
+                    // consumption immediately, independently of the measurement interval.
                     history = new DailyWindow { Label = quota.Label, LastUsed = used, ResetsAt = quota.ResetsAt, LastSample = sample, ObservedSince = sample };
                     account.Windows[quota.Key] = history;
-                }
-                else if (history.ResetsAt != quota.ResetsAt)
-                {
-                    history.LastUsed = used;
-                    history.ResetsAt = quota.ResetsAt;
-                    history.CycleSpent = 0;
-                    // A previously measured segment belongs to the old quota cycle.
-                    history.ReportedCycleSpent = 0;
                 }
                 else
                 {
@@ -89,6 +83,7 @@ internal sealed class DailyUsageTracker
                     if (increase > 0) history.Changes.Add(new(sample, increase));
                     // Keep a high-water mark so rounding/refunds cannot count the same consumption twice.
                     history.LastUsed = Math.Max(history.LastUsed, used);
+                    history.ResetsAt = quota.ResetsAt;
                 }
                 history.LastSample = sample;
                 changed = true;
@@ -132,6 +127,16 @@ internal sealed class DailyUsageTracker
     }
 
     private string Date(DateTimeOffset time) => TimeZoneInfo.ConvertTime(time, _zone).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    private static bool WasReplenished(DailyWindow history, double used, long? reset, DateTimeOffset sample)
+    {
+        // A reset ticket/provider refill may leave the reset timestamp unchanged.
+        if (used == 0 && (history.LastUsed > 0 || history.Spent > 0 || history.Changes.Count > 0)) return true;
+        if (history.ResetsAt is not { } previous || reset is not { } next) return false;
+        // A completed cycle can already have consumption again by the next poll.
+        if (previous <= sample.ToUnixTimeSeconds() && next > previous) return true;
+        // Ignore small deadline jitter and ordinary percentage corrections.
+        return used < history.LastUsed && Math.Abs((double)next - previous) >= 60;
+    }
     private static double SumChanges(DailyWindow history, DateTimeOffset measuredAt, int minutes) =>
         history.Changes.Where(point => point.At > measuredAt.AddMinutes(-minutes) && point.At <= measuredAt).Sum(point => point.Points);
     internal sealed record ConsumptionPoint(DateTimeOffset At, double Points);

@@ -202,20 +202,21 @@ final class DailyTracker {
             var item = history.windows[quota.key] ?? Window(label: quota.label, lastUsed: used,
                 resetsAt: quota.resetsAt, lastSample: sample, observedSince: sample)
             if history.windows[quota.key] == nil, previous?.identity == fingerprint,
-               let old = previous?.windows[quota.key], old.label == quota.label {
+               let old = previous?.windows[quota.key], old.label == quota.label,
+               !replenished(old, used: used, reset: quota.resetsAt, sample: sample) {
                 item.changes = old.changes; item.reportedAt = old.reportedAt; item.reportedSourceAt = old.reportedSourceAt
                 item.reportedRecentSpent = old.reportedRecentSpent; item.reportedWindowMinutes = old.reportedWindowMinutes
             }
             if sample > item.lastSample {
-                if item.label != quota.label {
+                if item.label != quota.label || replenished(item, used: used, reset: quota.resetsAt, sample: sample) {
+                    // Clear measured and pending consumption immediately, even between measurements.
                     item = Window(label: quota.label, lastUsed: used, resetsAt: quota.resetsAt, lastSample: sample, observedSince: sample)
-                } else if item.resetsAt != quota.resetsAt {
-                    item.lastUsed = used; item.resetsAt = quota.resetsAt; item.cycleSpent = 0; item.reportedCycleSpent = 0
                 } else {
                     let delta = max(0, used - item.lastUsed)
                     item.spent += delta; item.cycleSpent += delta
                     if delta > 0 { item.changes.append(Point(at: sample, points: delta)) }
                     item.lastUsed = max(item.lastUsed, used)
+                    item.resetsAt = quota.resetsAt
                 }
                 item.lastSample = sample
             }
@@ -245,5 +246,12 @@ final class DailyTracker {
     }
     private func sum(_ value: Window, at: Date, minutes: Int) -> Double {
         value.changes.filter { $0.at > at.addingTimeInterval(Double(-minutes * 60)) && $0.at <= at }.reduce(0) { $0 + $1.points }
+    }
+    private func replenished(_ item: Window, used: Double, reset: Double?, sample: Date) -> Bool {
+        // Full refills need no changed deadline; small corrections/jitter keep the high-water mark.
+        if used == 0 && (item.lastUsed > 0 || item.spent > 0 || !item.changes.isEmpty) { return true }
+        guard let previous = item.resetsAt, let next = reset else { return false }
+        if previous <= sample.timeIntervalSince1970 && next > previous { return true }
+        return used < item.lastUsed && abs(next - previous) >= 60
     }
 }

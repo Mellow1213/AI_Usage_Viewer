@@ -5,6 +5,7 @@
     <RollForward>Major</RollForward>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../QuotaResetChecks.cs" Link="QuotaResetChecks.cs" />
     <Compile Include="../../UsageWidget/AccountConnection.cs;../../UsageWidget/AccountSessions.cs;../../UsageWidget/AiAccountProfiles.cs;../../UsageWidget/ClaudeAuthClient.cs;../../UsageWidget/ClaudeBridge.cs;../../UsageWidget/ClaudeUsageControl.cs;../../UsageWidget/CodexAccounts.cs;../../UsageWidget/CodexClient.cs;../../UsageWidget/DailyUsageTracker.cs;../../UsageWidget/DashboardPreferences.cs;../../UsageWidget/MeasurementPreferences.cs;../../UsageWidget/UsageModels.cs;../../UsageWidget/WidgetStorage.cs"
              Link="Production/%(Filename)%(Extension)" />
   </ItemGroup>

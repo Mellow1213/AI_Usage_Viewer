@@ -135,12 +135,14 @@ internal sealed class VelopackUpdateBackend : IWidgetUpdateBackend
 {
     internal const string Repository = "https://github.com/Mellow1213/AI_Usage_Viewer";
     internal const string PackageId = "Mellow.AIUsageViewer";
+    internal static string BuildVersion => typeof(App).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "1.1.0";
+    internal static bool IncludesPrereleases(string version) => Velopack.SemanticVersion.Parse(version).IsPrerelease;
     private readonly UpdateManager _manager;
     private readonly string _expectedPackageId;
     private readonly Exception? _configurationError;
     public bool IsInstalled => _manager.IsInstalled;
     public string CurrentVersion => _manager.CurrentVersion?.ToString()
-        ?? typeof(App).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "1.1.0";
+        ?? BuildVersion;
     public WidgetUpdateRelease? Pending => _manager.UpdatePendingRestart is { } pending ? ToRelease(pending, pending) : null;
 
     internal VelopackUpdateBackend(string directory, UpdateManager? manager = null, string packageId = PackageId)
@@ -157,7 +159,7 @@ internal sealed class VelopackUpdateBackend : IWidgetUpdateBackend
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { _configurationError = ex; }
         try
         {
-            _manager = new UpdateManager(CreateSource(source));
+            _manager = new UpdateManager(CreateSource(source, IncludesPrereleases(BuildVersion)));
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or NotSupportedException)
         {
@@ -166,16 +168,16 @@ internal sealed class VelopackUpdateBackend : IWidgetUpdateBackend
         }
     }
 
-    internal static IUpdateSource CreateSource(string? source)
+    internal static IUpdateSource CreateSource(string? source, bool includePrereleases = false)
     {
-        if (string.IsNullOrWhiteSpace(source)) return new GithubSource(Repository, null, false);
+        if (string.IsNullOrWhiteSpace(source)) return new GithubSource(Repository, null, includePrereleases);
         if (Uri.TryCreate(source, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
         {
             if (uri.Scheme != "https") throw new InvalidDataException("Update sources require HTTPS.");
             var address = uri.AbsoluteUri.TrimEnd('/');
             if (address.Equals(Repository, StringComparison.OrdinalIgnoreCase) ||
                 address.Equals(Repository + "/releases/latest/download", StringComparison.OrdinalIgnoreCase))
-                return new GithubSource(Repository, null, false);
+                return new GithubSource(Repository, null, includePrereleases);
             return new SimpleWebSource(source);
         }
         return new SimpleFileSource(new DirectoryInfo(Path.GetFullPath(Environment.ExpandEnvironmentVariables(source))));

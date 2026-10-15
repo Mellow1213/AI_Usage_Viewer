@@ -16,9 +16,12 @@ xcrun swiftc -swift-version 5 -O -target "$(uname -m)-apple-macos13.0" \
   MacUsageWidget/Sources/*.swift -o "$app_dir/Contents/MacOS/AIUsageWidget"
 cp MacUsageWidget/Info.plist "$app_dir/Contents/Info.plist"
 version="$(sed -nE 's/.*<Version>([^<]+)<\/Version>.*/\1/p' UsageWidget/UsageWidget.csproj)"
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid application version' >&2; exit 1; }
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app_dir/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$app_dir/Contents/Info.plist"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]*)?$ ]] || { echo 'Invalid application version' >&2; exit 1; }
+version_core="${version%%-*}"
+# Apple's version fields stay numeric; retain the full SemVer separately for beta provenance.
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version_core" "$app_dir/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version_core" "$app_dir/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :AIUsageVersion string $version" "$app_dir/Contents/Info.plist"
 rm -rf "$app_dir/Contents/Resources/Web"
 cp -R "$build_dir/Web" "$app_dir/Contents/Resources/Web"
 icon_dir="$build_dir/AIUsageWidget.iconset"

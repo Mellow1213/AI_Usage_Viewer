@@ -81,11 +81,77 @@ import AppKit
         try check(observe(24, 60).windows[0].today?.usedPercentagePoints == 5, "Corrections preserve the consumption high-water mark")
         try check(observe(26, 120).windows[0].today?.usedPercentagePoints == 6, "Corrections never double-count recovered consumption")
         let reset = observe(1, 180, reset: 1_800_200_000)
-        try check(reset.windows[0].today?.usedPercentagePoints == 6 && reset.windows[0].today?.cyclePercentagePoints == 0, "Quota reset clears the painted cycle, preserving the daily total")
+        try check(reset.windows[0].today?.usedPercentagePoints == 0 && reset.windows[0].today?.cyclePercentagePoints == 0
+                  && reset.windows[0].today?.recentPercentagePoints == 0, "Quota reset clears daily, recent and painted consumption")
         try check(observe(90, 240, identity: "account-b").windows[0].today?.usedPercentagePoints == 0, "Changing identity resets observation history")
         let restored = DailyTracker(root: root.appendingPathComponent("tracker"), calendar: calendar)
         let restoredUsage = restored.observe(sample(93, 300), identity: "account-b", now: now.addingTimeInterval(300), interval: 1, window: 30)
         try check(restoredUsage.windows[0].today?.usedPercentagePoints == 3, "Observation history survives relaunch")
+
+        var resetTracker = DailyTracker(root: root.appendingPathComponent("refill"), calendar: calendar)
+        let deadline = now.addingTimeInterval(18_000).timeIntervalSince1970
+        func refillSample(_ used: Double, _ seconds: Double, reset: Double?, secondary: Double = 10) -> Usage {
+            Usage(id: "codex", status: "ready", windows: [Quota(key: "primary", label: "5시간", usedPercent: used, resetsAt: reset),
+                Quota(key: "secondary", label: "주간", usedPercent: secondary, resetsAt: deadline + 604_800)], updatedAt: now.addingTimeInterval(seconds))
+        }
+        func readRefill(_ used: Double, _ seconds: Double, reset: Double?, secondary: Double = 10) -> Usage {
+            resetTracker.observe(refillSample(used, seconds, reset: reset, secondary: secondary), identity: "refill-account",
+                now: now.addingTimeInterval(seconds), interval: 60, window: 1440)
+        }
+        _ = readRefill(20, 0, reset: deadline)
+        try check(readRefill(30, 3600, reset: deadline, secondary: 14).windows[0].today?.usedPercentagePoints == 10, "Refill fixture has measured consumption")
+        _ = readRefill(32, 3610, reset: deadline, secondary: 15)
+        let refill = readRefill(0, 3620, reset: deadline, secondary: 15)
+        let cleared = refill.windows[0].today!
+        try check(cleared.usedPercentagePoints == 0 && cleared.cyclePercentagePoints == 0 && cleared.recentPercentagePoints == 0
+                  && cleared.observedSince == now.addingTimeInterval(3620) && cleared.measuredAt == now.addingTimeInterval(3620),
+                  "Full refill with unchanged deadline immediately clears measured and pending consumption")
+        try check(refill.windows[1].today?.usedPercentagePoints == 4, "Refilling one quota preserves the other quota's consumption")
+        try check(readRefill(0, 3630, reset: deadline, secondary: 15).windows[0].today?.measuredAt == now.addingTimeInterval(3620),
+                  "Repeated full snapshots do not postpone the measurement clock")
+        _ = readRefill(3, 3640, reset: deadline, secondary: 15)
+        resetTracker = DailyTracker(root: root.appendingPathComponent("refill"), calendar: calendar)
+        let resumed = readRefill(5, 7220, reset: deadline, secondary: 15).windows[0].today!
+        try check(resumed.usedPercentagePoints == 5 && resumed.cyclePercentagePoints == 5 && resumed.recentPercentagePoints == 5,
+                  "Relaunch counts only consumption after refill")
+        let staleRefill = resetTracker.observe(refillSample(0, 3615, reset: deadline), identity: "refill-account",
+            now: now.addingTimeInterval(7220), interval: 60, window: 1440)
+        try check(staleRefill.windows[0].today == nil && readRefill(5, 7220, reset: deadline, secondary: 15).windows[0].today?.usedPercentagePoints == 5,
+                  "An out-of-order full snapshot cannot reset newer consumption")
+        let providerRefill = readRefill(1, 7230, reset: deadline + 86_400, secondary: 15).windows[0].today!
+        try check(providerRefill.usedPercentagePoints == 0 && providerRefill.recentPercentagePoints == 0 && providerRefill.measuredAt == now.addingTimeInterval(7230),
+                  "Provider reset establishes a baseline even when consumption has resumed")
+        resetTracker = DailyTracker(root: root.appendingPathComponent("correction"), calendar: calendar)
+        _ = readRefill(20, 0, reset: deadline); _ = readRefill(25, 3600, reset: deadline)
+        _ = readRefill(24, 3610, reset: deadline + 1)
+        let correction = readRefill(26, 7200, reset: deadline + 2).windows[0].today!
+        try check(correction.usedPercentagePoints == 6 && correction.recentPercentagePoints == 6,
+                  "Corrections and deadline jitter preserve the consumption high-water mark")
+        try check(readRefill(27, 10_800, reset: deadline + 3600).windows[0].today?.usedPercentagePoints == 7,
+                  "A deadline extension without replenishment preserves consumption")
+        resetTracker = DailyTracker(root: root.appendingPathComponent("scheduled"), calendar: calendar)
+        _ = readRefill(20, 0, reset: now.addingTimeInterval(120).timeIntervalSince1970)
+        _ = readRefill(25, 60, reset: now.addingTimeInterval(120).timeIntervalSince1970)
+        let scheduled = readRefill(30, 180, reset: deadline).windows[0].today!
+        try check(scheduled.usedPercentagePoints == 0 && scheduled.recentPercentagePoints == 0,
+                  "An elapsed reset boundary clears consumption even when the new sample is higher")
+        resetTracker = DailyTracker(root: root.appendingPathComponent("no-deadline"), calendar: calendar)
+        _ = readRefill(20, 0, reset: nil); _ = readRefill(25, 3600, reset: nil)
+        let withoutDeadline = readRefill(0, 3610, reset: nil).windows[0].today!
+        try check(withoutDeadline.usedPercentagePoints == 0 && withoutDeadline.recentPercentagePoints == 0,
+                  "A full refill resets quotas without a provider deadline")
+        resetTracker = DailyTracker(root: root.appendingPathComponent("midnight"), calendar: calendar)
+        let beforeMidnight = calendar.startOfDay(for: now).addingTimeInterval(86_280)
+        func midnightSample(_ used: Double, _ time: Date) -> Usage {
+            Usage(id: "claude", status: "ready", windows: [Quota(key: "primary", label: "5시간", usedPercent: used,
+                resetsAt: beforeMidnight.addingTimeInterval(18_000).timeIntervalSince1970)], updatedAt: time)
+        }
+        _ = resetTracker.observe(midnightSample(20, beforeMidnight), identity: "claude-refill", now: beforeMidnight, interval: 1, window: 30)
+        _ = resetTracker.observe(midnightSample(25, beforeMidnight.addingTimeInterval(60)), identity: "claude-refill", now: beforeMidnight.addingTimeInterval(60), interval: 1, window: 30)
+        let midnightRefill = resetTracker.observe(midnightSample(0, beforeMidnight.addingTimeInterval(180)), identity: "claude-refill",
+            now: beforeMidnight.addingTimeInterval(180), interval: 60, window: 30).windows[0].today!
+        try check(midnightRefill.usedPercentagePoints == 0 && midnightRefill.recentPercentagePoints == 0 && midnightRefill.isCurrentDay,
+                  "Claude refill across midnight clears carried rolling consumption and the old clock")
 
         let bridge = ClaudeBridge(profile: .primary("claude"), root: root.appendingPathComponent("bridge"), executable: URL(fileURLWithPath: "/Applications/AI Usage's.app/Contents/MacOS/AIUsageWidget"))
         try JSON.writeObject(["statusLine": ["type": "command", "command": "printf original"], "theme": "dark"], to: bridge.settings)

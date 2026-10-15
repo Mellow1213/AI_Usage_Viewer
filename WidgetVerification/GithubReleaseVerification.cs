@@ -18,7 +18,8 @@ internal static partial class Program
             var packages = Path.Combine(directory, "packages");
             Directory.CreateDirectory(packages);
             var locator = new TestVelopackLocator(VelopackUpdateBackend.PackageId, "1.1.0", packages);
-            var manager = new UpdateManager(VelopackUpdateBackend.CreateSource(null), locator: locator);
+            var prerelease = VelopackUpdateBackend.IncludesPrereleases(version);
+            var manager = new UpdateManager(VelopackUpdateBackend.CreateSource(null, prerelease), locator: locator);
             var backend = new VelopackUpdateBackend(directory, manager);
             using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
             var release = await backend.CheckAsync(timeout.Token);
@@ -31,9 +32,15 @@ internal static partial class Program
             // Also exercise the static migration endpoint consumed by the original 1.1.0 app.
             var legacy = new UpdateManager(VelopackUpdateBackend.Repository + "/releases/latest/download", locator: locator);
             var legacyUpdate = await legacy.CheckForUpdatesAsync().WaitAsync(timeout.Token);
-            if (legacyUpdate?.TargetFullRelease.Version.ToString() != version) throw new Exception("The 1.1.0 migration endpoint does not expose this release.");
+            var stableManager = new UpdateManager(VelopackUpdateBackend.CreateSource(null), locator: locator);
+            var stableUpdate = await stableManager.CheckForUpdatesAsync().WaitAsync(timeout.Token);
+            var stableVersion = stableUpdate?.TargetFullRelease.Version.ToString();
+            if (stableVersion is null || legacyUpdate?.TargetFullRelease.Version.ToString() != stableVersion)
+                throw new Exception("The stable provider and 1.1.0 migration endpoint disagree.");
+            if (prerelease ? VelopackUpdateBackend.IncludesPrereleases(stableVersion) || stableVersion == version : stableVersion != version)
+                throw new Exception("Stable installations must not receive beta releases.");
             File.WriteAllText(Path.Combine(directory, "results.json"), JsonSerializer.Serialize(new {
-                success = true, version, package = asset.FileName, sha256 = hash,
+                success = true, version, prerelease, stableVersion, package = asset.FileName, sha256 = hash,
                 anonymousGithubCheck = true, anonymousDownloadVerified = true, legacyEndpointVerified = true,
                 installedAppAndAccountsUntouched = true
             }, WidgetStorage.Json));

@@ -1,10 +1,11 @@
 param(
-    [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version,
+    [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+(-beta\.[1-9]\d*)?$')][string]$Version,
     [switch]$ResumeDraft
 )
 $ErrorActionPreference = 'Stop'
 $repository = 'Mellow1213/AI_Usage_Viewer'
 $tag = "v$Version"
+$isPrerelease = $Version.Contains('-')
 $packageDirectory = Join-Path $PSScriptRoot "artifacts\releases\$Version"
 $publishDirectory = Join-Path $PSScriptRoot "artifacts\publish\$Version"
 $notes = Join-Path $PSScriptRoot "docs\releases\$Version.md"
@@ -38,9 +39,20 @@ try {
     $existing = @($releases | Where-Object tagName -eq $tag)
     if ($existing.Count -gt 0 -and -not $existing[0].isDraft) { throw "$tag is already published. Never overwrite it; increase the version." }
     if ($existing.Count -gt 0 -and -not $ResumeDraft) { throw 'An unfinished draft exists. Inspect it, then retry with -ResumeDraft.' }
+    $versionCore = [version]($Version.Split('-')[0])
+    $betaNumber = if ($isPrerelease) { [int]($Version.Split('.')[-1]) } else { [int]::MaxValue }
+    foreach ($release in @($releases | Where-Object { -not $_.isDraft })) {
+        if ($release.tagName -match '^v(\d+\.\d+\.\d+)(?:-beta\.([1-9]\d*))?$') {
+            $publishedCore = [version]$Matches[1]
+            $publishedBeta = if ($Matches[2]) { [int]$Matches[2] } else { [int]::MaxValue }
+            if ($publishedCore -gt $versionCore -or ($publishedCore -eq $versionCore -and $publishedBeta -ge $betaNumber)) {
+                throw 'The version must be greater than every already published stable or beta version.'
+            }
+        }
+    }
     $latest = (Invoke-ReleaseCommand gh @('release', 'view', '--repo', $repository, '--json', 'tagName')) | ConvertFrom-Json
-    if ($latest.tagName -match '^v(\d+\.\d+\.\d+)$' -and [version]$Version -le [version]$Matches[1]) {
-        throw 'A stable release version must be greater than the current latest release.'
+    if ($latest.tagName -match '^v(\d+\.\d+\.\d+)$' -and [version]($Version.Split('-')[0]) -le [version]$Matches[1]) {
+        throw 'The release version core must be greater than the current latest stable release.'
     }
     $remoteTag = @(Invoke-ReleaseCommand git @('ls-remote', 'origin', "refs/tags/$tag"))
     if ($remoteTag.Count -gt 0) {
@@ -108,9 +120,13 @@ try {
             throw "Uploaded asset did not verify: $file. Release remains a draft."
         }
     }
-    $null = Invoke-ReleaseCommand gh @('release', 'edit', $tag, '--repo', $repository, '--draft=false', '--latest')
-    $published = (Invoke-ReleaseCommand gh @('release', 'view', '--repo', $repository, '--json', 'tagName,isDraft,url')) | ConvertFrom-Json
-    if ($published.isDraft -or $published.tagName -ne $tag) { throw 'The new release is not the public latest release.' }
+    $publishFlags = if ($isPrerelease) { @('--prerelease', '--latest=false') } else { @('--prerelease=false', '--latest') }
+    $null = Invoke-ReleaseCommand gh (@('release', 'edit', $tag, '--repo', $repository, '--draft=false') + $publishFlags)
+    $published = (Invoke-ReleaseCommand gh @('release', 'view', $tag, '--repo', $repository, '--json', 'tagName,isDraft,isPrerelease,url')) | ConvertFrom-Json
+    if ($published.isDraft -or $published.tagName -ne $tag -or $published.isPrerelease -ne $isPrerelease) { throw 'The release visibility/channel does not match the requested version.' }
+    $latestAfter = (Invoke-ReleaseCommand gh @('release', 'view', '--repo', $repository, '--json', 'tagName')) | ConvertFrom-Json
+    $expectedLatest = if ($isPrerelease) { $latest.tagName } else { $tag }
+    if ($latestAfter.tagName -ne $expectedLatest) { throw 'The stable Latest release changed unexpectedly.' }
     Write-Host "Published and verified: $($published.url)"
     Write-Host 'Complete the anonymous update check/download with verify-widget-release.ps1 before reporting completion.'
 } finally { Pop-Location }

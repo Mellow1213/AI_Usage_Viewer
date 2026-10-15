@@ -180,9 +180,9 @@ function TodayUsage({ quota, available, observedAt, compact = false, intervalMin
   const recent = quota.today.recentPercentagePoints;
   const format = value => `${value > 0 ? '−' : ''}${value.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}`;
   return <div className="observed-usage"><button className="today-usage" aria-label="관측 측정 설정" onClick={onConfigure}
-    title={`마지막 사용량 수신 ${time}. ${since}부터 관측한 ${quota.label} 한도 변화량입니다. 집계 ${measured}, 집계에 반영된 수신 ${received}, 갱신 주기 ${measurementLabel(intervalMinutes)}. 하루 전체 사용량이나 토큰 수가 아니며, 수신되지 않은 소비와 초기화 사이의 사용은 빠질 수 있습니다. 클릭해서 측정 설정을 변경하세요.`}>
+    title={`마지막 사용량 수신 ${time}. ${since}부터 관측한 ${quota.label} 한도 변화량입니다. 한도 초기화 또는 날짜 변경 시 누적 소모량을 새로 집계합니다. 집계 ${measured}, 집계에 반영된 수신 ${received}, 갱신 주기 ${measurementLabel(intervalMinutes)}. 하루 전체 사용량이나 토큰 수가 아니며, 수신되지 않은 소비와 초기화 사이의 사용은 빠질 수 있습니다. 클릭해서 측정 설정을 변경하세요.`}>
     <span><time dateTime={observationAt}>{time}</time>관측 {!compact && <span className="today-basis">· {quota.label}</span>}<span className="measurement-chip">{measurementLabel(intervalMinutes)}</span></span><span className="today-amount">{quota.today.isCurrentDay ? <>{format(points)}<small>%p</small></> : '집계 대기'}</span>
-  </button><button className="today-usage recent-usage" onClick={onConfigure} title={`마지막 집계(${measured}) 시점의 최근 ${measurementLabel(quota.today.windowMinutes)} 소비량입니다. 변화량을 수신한 시각을 기준으로 계산하며, 아직 쌓이지 않은 구간은 복원할 수 없습니다.`}>
+  </button><button className="today-usage recent-usage" onClick={onConfigure} title={`마지막 집계(${measured}) 시점의 최근 ${measurementLabel(quota.today.windowMinutes)} 소비량입니다. 한도 초기화 시 이전 소비 기록도 지웁니다. 변화량을 수신한 시각을 기준으로 계산하며, 아직 쌓이지 않은 구간은 복원할 수 없습니다.`}>
     <span>최근 {measurementLabel(quota.today.windowMinutes)} 관측</span><span className="today-amount">{format(recent)}<small>%p</small></span>
   </button></div>;
 }

@@ -6,7 +6,12 @@ internal static partial class Program
 {
     private static async Task VerifyUpdatesAsync()
     {
-        Check(VelopackUpdateBackend.CreateSource(null) is GithubSource, "Fresh installations use public GitHub Releases without credentials");
+        Check(VelopackUpdateBackend.CreateSource(null) is GithubSource { Prerelease: false }, "Stable installations use public GitHub Releases without beta updates or credentials");
+        Check(VelopackUpdateBackend.IncludesPrereleases("1.2.1-beta.1") && !VelopackUpdateBackend.IncludesPrereleases("1.2.1"),
+            "Only prerelease app versions opt into beta updates");
+        Check(VelopackUpdateBackend.CreateSource(null, true) is GithubSource { Prerelease: true } &&
+            VelopackUpdateBackend.CreateSource(VelopackUpdateBackend.Repository + "/releases/latest/download", true) is GithubSource { Prerelease: true },
+            "Beta installations include prereleases even with the legacy migration URL");
         Check(VelopackUpdateBackend.CreateSource(VelopackUpdateBackend.Repository) is GithubSource &&
             VelopackUpdateBackend.CreateSource(VelopackUpdateBackend.Repository + "/releases/latest/download/") is GithubSource,
             "Repository and migration URLs both use the GitHub update provider");

@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version)
+param([Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+(-beta\.[1-9]\d*)?$')][string]$Version)
 $ErrorActionPreference = 'Stop'
 $directory = Join-Path $PSScriptRoot ('artifacts\github-release-checks\' + $Version + '-' + [Guid]::NewGuid().ToString('N'))
 Push-Location $PSScriptRoot

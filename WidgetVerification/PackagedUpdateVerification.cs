@@ -10,13 +10,14 @@ internal static partial class Program
         var mode = args[1];
         var profile = args[2];
         var source = args[3];
+        var targetVersion = args.Length > 4 ? args[4] : "1.1.1";
         Directory.CreateDirectory(profile);
         try
         {
             var backend = new VelopackUpdateBackend(profile, new UpdateManager(source), UpdateVerificationPackage);
             using var updater = new WidgetUpdater(profile, backend);
             if (!backend.IsInstalled) throw new Exception("Fixture was not installed by Velopack.");
-            if (backend.CurrentVersion == "1.1.1")
+            if (backend.CurrentVersion == targetVersion)
             {
                 WidgetStorage.Write(Path.Combine(profile, "applied.json"), new { currentVersion = backend.CurrentVersion, installed = backend.IsInstalled });
                 return 0;
@@ -29,7 +30,7 @@ internal static partial class Program
                 return 0; // Update.exe waits for this process to exit before replacing the files.
             }
             updater.CheckAsync().GetAwaiter().GetResult();
-            if (updater.State.Phase != "available") throw new Exception("Fixture did not find version 1.1.1.");
+            if (updater.State.Phase != "available" || updater.State.LatestVersion != targetVersion) throw new Exception("Fixture did not find version " + targetVersion);
             updater.DownloadAsync().GetAwaiter().GetResult();
             if (mode == "corrupt")
             {

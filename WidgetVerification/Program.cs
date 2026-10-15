@@ -160,6 +160,7 @@ internal static partial class Program
     private static async Task VerifyAsync(bool live)
     {
         VerifyDailyUsage();
+        QuotaResetChecks.Run(Path.Combine(_output, "quota-resets"), Check);
         VerifyMeasurementSchedule();
         await VerifyClaudeUsageControlAsync();
         await VerifyAccountsAsync();
@@ -377,7 +378,7 @@ internal static partial class Program
         await Task.Delay(145);
         Check(_window.IsResizing && _window.ActualWidth > 48 && _window.ActualWidth < 304,
             "Summary-to-logo transition animates the actual native width");
-        Check(Math.Abs(_window.Left + _window.ActualWidth - anchoredRight) < 3, "Resize animation keeps the native right edge anchored");
+        Check(Math.Abs(_window.Left + _window.ActualWidth - anchoredRight) < 3, $"Resize animation keeps the native right edge anchored (expected {anchoredRight:F2}, actual {_window.Left + _window.ActualWidth:F2})");
         await AssertScriptAsync("Number(getComputedStyle(document.querySelector('[data-view=\"2\"]')).opacity) < .05 && [...document.querySelectorAll('.widget')].every(card=>Number(getComputedStyle(card).opacity)<.01)", "Logo morph contains no visible cropped outgoing card text or meters");
         await CaptureAsync("folding.png");
         await Task.Delay(650);
@@ -942,12 +943,12 @@ internal static partial class Program
         Check(Read(14, 4).Windows[0].Today?.UsedPercentagePoints == 4, "Same-day baseline and consumption survive a widget restart");
         var changedReset = reset + 3600;
         var refreshed = Read(1, 5, changedReset);
-        Check(refreshed.Windows[0].Today is { UsedPercentagePoints: 4, CyclePercentagePoints: 0 },
-            "Quota reset preserves the daily total and clears the painted cycle segment");
-        Check(Read(4, 6, changedReset).Windows[0].Today is { UsedPercentagePoints: 7, CyclePercentagePoints: 3 },
+        Check(refreshed.Windows[0].Today is { UsedPercentagePoints: 0, CyclePercentagePoints: 0, RecentPercentagePoints: 0 },
+            "Quota reset clears daily, recent and painted consumption together");
+        Check(Read(4, 6, changedReset).Windows[0].Today is { UsedPercentagePoints: 3, CyclePercentagePoints: 3 },
             "New-cycle consumption accumulates without treating quota replenishment as damage");
         var old = tracker.Observe(Sample(99, start.AddMinutes(5), changedReset), "account-a:plus", start.AddMinutes(6));
-        Check(old.Windows[0].Today is null && Read(4, 6, changedReset).Windows[0].Today?.UsedPercentagePoints == 7,
+        Check(old.Windows[0].Today is null && Read(4, 6, changedReset).Windows[0].Today?.UsedPercentagePoints == 3,
             "Out-of-order observations cannot contaminate the daily total");
         var tomorrow = start.AddMinutes(11);
         Check(tracker.Observe(Sample(4, start.AddMinutes(6), changedReset), "account-a:plus", tomorrow).Windows.All(w => w.Today is null),
@@ -993,8 +994,9 @@ internal static partial class Program
         var nextDay = daily.Observe(Sample(25, start.AddDays(1)), "daily-account", start.AddDays(1), TimeSpan.FromDays(1), 1440).Windows[0].Today!;
         Check(nextDay.IsCurrentDay && nextDay.UsedPercentagePoints == 4 && nextDay.RecentPercentagePoints == 14, "One-day comparison retains rolling history across midnight while today's total uses today's baseline");
         var reset = Sample(1, start.AddDays(1).AddMinutes(1)) with { Windows = [new("primary", "주간", 1, start.AddDays(8).ToUnixTimeSeconds())] };
-        Check(daily.Observe(reset, "daily-account", reset.UpdatedAt!.Value, TimeSpan.FromDays(1), 1440).Windows[0].Today?.CyclePercentagePoints == 0,
-            "Quota replenishment immediately clears the old painted cycle segment between measurements");
+        Check(daily.Observe(reset, "daily-account", reset.UpdatedAt!.Value, TimeSpan.FromDays(1), 1440).Windows[0].Today is
+            { UsedPercentagePoints: 0, CyclePercentagePoints: 0, RecentPercentagePoints: 0, IsCurrentDay: true },
+            "Quota replenishment immediately clears every consumption amount between measurements");
         Check(MeasurementPreferences.Read(directory) is { IntervalMinutes: 30, WindowMinutes: 30 }, "Fresh measurement settings retain the existing 30-minute default");
         WidgetStorage.Write(Path.Combine(directory, "measurement.json"), new MeasurementPreferences(1440, 720));
         Check(MeasurementPreferences.Read(directory) is { IntervalMinutes: 180, WindowMinutes: 720 }, "Legacy aggregation interval is clamped without resetting the user's comparison window");
