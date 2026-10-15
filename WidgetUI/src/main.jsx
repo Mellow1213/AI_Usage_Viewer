@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import { animate, AnimatePresence, motion, useMotionValue, useSpring, useTransform } from 'motion/react';
-import { ArrowDownLeft, ArrowDownRight, ArrowLeft, ArrowUpLeft, ArrowUpRight, ChevronDown, ChevronRight, CirclePlus, Clock3, Grip, Settings, Pin, Plus, Power, RefreshCw, Rows3, LayoutPanelTop, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowDownRight, ArrowLeft, ArrowUpLeft, ArrowUpRight, ChevronDown, ChevronRight, CirclePlus, Clock3, Command, Grip, Settings, Pin, Plus, Power, RefreshCw, Rows3, LayoutPanelTop, Trash2, UserRound, X } from 'lucide-react';
 import './style.css';
 import { nextDisplayDelay } from './displayClock.js';
 
@@ -220,7 +220,7 @@ function ProviderCard({ provider, account, busy, onConnect, onMeasurements, meas
   return <motion.section className={`provider ${providerClass(provider)} ${low ? 'low' : ''}`} data-account-id={provider.id} aria-label={`${providerName(provider)} 잔여량`}
     initial={reduce ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .45, delay: isClaude ? .08 : 0 }}>
     <div className="provider-head">
-      <div className="provider-brand"><span className="provider-symbol">{service?.symbol ?? '✦'}</span><span className="provider-name" title={[providerName(provider), account?.email].filter(Boolean).join(' · ')}><AccountLabel account={provider} /><PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span></div>
+      <div className="provider-brand"><span className="provider-symbol">{service?.id === 'codex' ? <Command size={14} aria-hidden="true" /> : service?.symbol ?? '✦'}</span><span className="provider-name" title={[providerName(provider), account?.email].filter(Boolean).join(' · ')}><AccountLabel account={provider} /><PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span></div>
       <span className={`status-tag ${stale || provider.status === 'error' ? 'muted' : ''}`}><span className="status-dot" />{provider.status === 'ready' ? stale ? '이전 수신값' : '연결됨' : provider.status === 'loading' ? '연결 중' : provider.status === 'error' ? '연결 오류' : provider.status === 'disconnected' ? '로그인 필요' : provider.status === 'signingIn' ? '로그인 중' : '응답 대기'}</span>
     </div>
     <div className="quota-title"><span>{main ? `${main.label} 잔여량` : '사용량 잔여'} </span><span className="tiny-caption">REMAINING</span></div>
@@ -326,7 +326,7 @@ function ProviderPicker({ state, onAdd }) {
   return <div className="provider-picker"><p>추가할 계정의 AI를 선택하세요. 같은 AI도 여러 번 추가할 수 있습니다.</p><div className="provider-catalog">{(state.serviceCatalog ?? catalog).map(service => {
     const added = state.providers.some(provider => provider.id === service.id);
     return <button key={service.id} className={`catalog-option ${service.id}`} aria-label={`${service.name} 추가`} disabled={state.busy || state.authBusy} onClick={() => onAdd(service.id)}>
-      <span className="catalog-symbol">{service.symbol}</span><span className="catalog-copy"><strong>{added ? `${service.name} 계정 추가` : service.name}</strong><small>{service.description} · 여러 계정</small></span><Plus size={14} />
+      <span className="catalog-symbol">{service.id === 'codex' ? <Command size={18} aria-hidden="true" /> : service.symbol}</span><span className="catalog-copy"><strong>{added ? `${service.name} 계정 추가` : service.name}</strong><small>{service.description} · 여러 계정</small></span><Plus size={14} />
     </button>;
   })}</div><p className="settings-help">추가한 계정은 계정 관리에서 로그인할 수 있습니다.</p>
   </div>;

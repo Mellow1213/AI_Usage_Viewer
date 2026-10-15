@@ -20,6 +20,8 @@ import AppKit
     var hide: (() -> Void)?
     let fixture: Bool
     var viewRevision = 0
+    private var logoRotation = 0
+    private var logoRotationStep = 120
     init(root: URL, fixture: Bool = false) throws {
         self.root = root; self.fixture = fixture
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -138,7 +140,7 @@ import AppKit
         return ["platform": "macos", "busy": busy, "authBusy": loginProvider != nil, "loginProvider": loginProvider as Any? ?? NSNull(),
             "notice": notice as Any? ?? NSNull(), "viewMode": preferences.viewMode, "viewRevision": viewRevision,
             "collapsed": preferences.viewMode == 1, "lastCardView": preferences.viewMode, "transitionPhase": "settled",
-            "animateTransitions": preferences.animateTransitions, "logoRotation": 0, "maxCardHeight": maxHeight,
+            "animateTransitions": preferences.animateTransitions, "logoRotation": logoRotation, "logoRotationStep": logoRotationStep, "maxCardHeight": maxHeight,
             "measurementIntervalMinutes": preferences.intervalMinutes, "measurementWindowMinutes": preferences.windowMinutes,
             "accounts": preferences.profiles.map { profile -> Object in
                 var result = JSON.object(accounts[profile.id] ?? Account(id: profile.id))
@@ -160,8 +162,13 @@ import AppKit
         case "toggleLogo", "collapse": hide?(); return
         case "close": NSApplication.shared.terminate(nil); return
         case "toggleMotion": preferences.animateTransitions.toggle()
-        case "toggleDetails": preferences.viewMode = preferences.viewMode == 0 ? 1 : 0; viewRevision += 1
-        case "showFull": preferences.viewMode = 0; viewRevision += 1
+        case "toggleDetails", "showFull":
+            let nextMode = action == "showFull" ? 0 : (preferences.viewMode == 0 ? 1 : 0)
+            guard nextMode != preferences.viewMode else { return }
+            // Match Windows: collapse clockwise, then unwind when expanding.
+            logoRotationStep = nextMode > preferences.viewMode ? 120 : -120
+            logoRotation += logoRotationStep
+            preferences.viewMode = nextMode; viewRevision += 1
         default:
             guard !busy, loginProvider == nil else { return }
             switch action {

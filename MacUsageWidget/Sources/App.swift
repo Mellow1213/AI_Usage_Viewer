@@ -213,9 +213,10 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         let image = NSImage(size: NSSize(width: 20, height: 20), flipped: true) { rect in
             NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
             let transform = NSAffineTransform()
-            transform.translateX(by: 10, yBy: 10)
+            transform.translateX(by: rect.midX, yBy: rect.midY)
             transform.rotate(byRadians: CGFloat(rotation * .pi / 180))
-            transform.scale(by: 0.5); transform.translateX(by: -20, yBy: -20); transform.concat()
+            // Center the three triangles' centroid on the image before rotating.
+            transform.scale(by: 0.5); transform.translateX(by: -20, yBy: -70.0 / 3.0); transform.concat()
             let paths: [[NSPoint]] = [[NSPoint(x:20,y:4), NSPoint(x:27,y:16), NSPoint(x:13,y:16)],
                                      [NSPoint(x:30,y:21), NSPoint(x:37,y:33), NSPoint(x:23,y:33)],
                                      [NSPoint(x:10,y:21), NSPoint(x:17,y:33), NSPoint(x:3,y:33)]]
@@ -281,9 +282,12 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         let state = String(decoding: data, as: UTF8.self)
         var interruptedAngle = 0.0
         if interrupt {
+            let readAngle = "(() => { const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.triangle')).transform); return Math.atan2(m.b, m.a) * 180 / Math.PI; })()"
+            let initialAngle = try await web.evaluateJavaScript(readAngle) as? Double ?? 0
             try await web.evaluateJavaScript("window.aiUsageReceive({ ...\(state), busy: true });")
             try await Task.sleep(nanoseconds: 350_000_000)
-            interruptedAngle = try await web.evaluateJavaScript("(() => { const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.triangle')).transform); return Math.abs(Math.atan2(m.b, m.a) * 180 / Math.PI); })()") as? Double ?? 0
+            let angle = try await web.evaluateJavaScript(readAngle) as? Double ?? 0
+            interruptedAngle = abs((angle - initialAngle + 540).truncatingRemainder(dividingBy: 360) - 180)
         }
         popover.performClose(nil)
         try await Task.sleep(nanoseconds: 250_000_000)
@@ -333,6 +337,39 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             && (!interrupt || interruptedAngle > 1)
         return result
     }
+    private func verifyViewRotation(action: String, clockwise: Bool) async throws -> Object {
+        try await web.evaluateJavaScript("""
+        (() => {
+          const result = window.__viewRotation = { frames: 0, total: 0, minimumStep: 0, maximumStep: 0, finished: false };
+          let previous;
+          const started = performance.now();
+          const sample = now => {
+            const logo = document.querySelector('.transition-mark .triangle');
+            if (logo) {
+              const matrix = new DOMMatrixReadOnly(getComputedStyle(logo).transform);
+              const angle = Math.atan2(matrix.b, matrix.a) * 180 / Math.PI;
+              if (previous !== undefined) {
+                const step = ((angle - previous + 540) % 360) - 180;
+                result.total += step; result.minimumStep = Math.min(result.minimumStep, step); result.maximumStep = Math.max(result.maximumStep, step);
+              }
+              previous = angle; result.frames++;
+            }
+            if (now - started < 800) requestAnimationFrame(sample);
+            else result.finished = true;
+          };
+          requestAnimationFrame(sample);
+        })();
+        """)
+        await store.action(["action": action])
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        var result = try await web.evaluateJavaScript("window.__viewRotation") as? Object ?? [:]
+        let total = result["total"] as? Double ?? 0
+        result["clockwise"] = clockwise
+        result["passed"] = result["finished"] as? Bool == true && (result["frames"] as? Int ?? 0) > 10
+            && abs(total) <= 121 && (clockwise ? total > 100 : total < -100)
+            && (clockwise ? (result["minimumStep"] as? Double ?? -.infinity) >= -0.1 : (result["maximumStep"] as? Double ?? .infinity) <= 0.1)
+        return result
+    }
     private func runSmoke() {
         guard smokeDirectory != nil, !smokeStarted else { return }; smokeStarted = true
         Task {
@@ -341,16 +378,13 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                 try await Task.sleep(nanoseconds: 1_000_000_000)
                 let first = try await web.evaluateJavaScript("({text: document.body.innerText, cards: document.querySelectorAll('.provider').length, platform: !!window.aiUsageNative})") as? Object ?? [:]
                 let fastRefresh = try await verifyRefreshRotation(activeMilliseconds: 100)
-                await store.action(["action": "toggleDetails"])
-                try await Task.sleep(nanoseconds: 700_000_000)
+                let compactRotation = try await verifyViewRotation(action: "toggleDetails", clockwise: true)
                 let compact = try await web.evaluateJavaScript("document.querySelector('.compact') !== null && !!document.querySelector('.header .refresh') && !document.querySelector('footer')") as? Bool ?? false
                 let slowRefresh = try await verifyRefreshRotation(activeMilliseconds: 2400)
                 let hiddenRefresh = try await verifyHiddenRefreshRotation()
                 let interruptedRefresh = try await verifyHiddenRefreshRotation(interrupt: true)
                 let reopenedRefresh = try await verifyRefreshRotation(activeMilliseconds: 100, burst: true)
-                await store.action(["action": "showFull"])
-                showPopover()
-                try await Task.sleep(nanoseconds: 700_000_000)
+                let expandedRotation = try await verifyViewRotation(action: "showFull", clockwise: false)
                 let layout = try await web.evaluateJavaScript("({viewport: innerHeight, card: document.querySelector('.widget').getBoundingClientRect().bottom, refreshInHeader: !!document.querySelector('.header .refresh'), footerRemoved: !document.querySelector('footer')})") as? Object ?? [:]
                 let snapshot = try await web.takeSnapshot(configuration: nil)
                 if let data = snapshot.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data), let png = bitmap.representation(using: .png, properties: [:]), let folder = smokeDirectory {
@@ -362,9 +396,11 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                     && fastRefresh["passed"] as? Bool == true && slowRefresh["passed"] as? Bool == true
                     && hiddenRefresh["passed"] as? Bool == true
                     && interruptedRefresh["passed"] as? Bool == true && reopenedRefresh["passed"] as? Bool == true
+                    && compactRotation["passed"] as? Bool == true && expandedRotation["passed"] as? Bool == true
                 finishSmoke(["passed": passed, "readyHandshake": ready, "statusItem": item.button != nil,
                              "renderedCards": first["cards"] ?? 0, "compactMode": compact, "cardFits": cardFits, "layout": layout,
                              "fastRefresh": fastRefresh, "slowRefresh": slowRefresh, "hiddenRefresh": hiddenRefresh,
+                             "compactRotation": compactRotation, "expandedRotation": expandedRotation,
                              "interruptedRefresh": interruptedRefresh, "reopenedRefresh": reopenedRefresh, "text": first["text"] ?? ""])
             } catch { finishSmoke(["passed": false, "error": String(describing: error)]) }
         }
