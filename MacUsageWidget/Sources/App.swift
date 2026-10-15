@@ -288,6 +288,13 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         }
         image.isTemplate = true; item?.button?.image = image
     }
+    private func waitForScriptCompletion(_ name: String) async throws {
+        for _ in 0..<200 {
+            if try await web.widgetEvaluate("window.\(name)?.finished === true") as? Bool == true { return }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        throw WidgetError.message("WebKit verification did not finish: \(name)")
+    }
     private func verifyRefreshRotation(activeMilliseconds: Int, burst: Bool = false) async throws -> Object {
         // WebKit suspends animation frames while the transient popover is closed.
         // Finish the startup turn before measuring a separate refresh request.
@@ -328,7 +335,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
           }
         })();
         """)
-        try await Task.sleep(nanoseconds: UInt64(sampleMilliseconds + 100) * 1_000_000)
+        try await waitForScriptCompletion("__refreshRotation")
         var result = try await web.widgetEvaluate("window.__refreshRotation") as? Object ?? [:]
         result["busyMilliseconds"] = activeMilliseconds
         result["refreshes"] = burst ? 10 : 1
@@ -388,7 +395,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         })();
         """)
         showPopover()
-        try await Task.sleep(nanoseconds: 2_700_000_000)
+        try await waitForScriptCompletion("__hiddenRefreshRotation")
         var result = try await web.widgetEvaluate("window.__hiddenRefreshRotation") as? Object ?? [:]
         result["backgroundRefreshes"] = interrupt ? 0 : 12
         result["interrupted"] = interrupt
@@ -424,7 +431,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         })();
         """)
         await store.action(["action": action])
-        try await Task.sleep(nanoseconds: 1_000_000_000)
+        try await waitForScriptCompletion("__viewRotation")
         var result = try await web.widgetEvaluate("window.__viewRotation") as? Object ?? [:]
         let total = result["total"] as? Double ?? 0
         result["clockwise"] = clockwise
