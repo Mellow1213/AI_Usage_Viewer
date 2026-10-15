@@ -245,7 +245,7 @@ public partial class MainWindow : Window
                         var id = added.GetString()!;
                         if (AiServices.Catalog.Any(service => service.Id == id) && (_dashboard.ProviderIds.Contains(id)
                             || _accountProfiles.Profiles.Any(profile => profile.Service == id && (profile.Enabled || profile.Id != id)))) await AddAccountAsync(id);
-                        else await SetProviderVisibilityAsync(id, true);
+                        else await ShowProviderAsync(id);
                     }
                     break;
                 case "addCodexAccount": await AddCodexAccountAsync(); break;
@@ -255,11 +255,11 @@ public partial class MainWindow : Window
                     break;
                 case "showProvider":
                     if (root.TryGetProperty("provider", out var shown) && shown.ValueKind == JsonValueKind.String)
-                        await SetProviderVisibilityAsync(shown.GetString()!, true);
+                        await ShowProviderAsync(shown.GetString()!);
                     break;
                 case "removeProvider":
                     if (root.TryGetProperty("provider", out var removed) && removed.ValueKind == JsonValueKind.String)
-                        await SetProviderVisibilityAsync(removed.GetString()!, false);
+                        RemoveAccount(removed.GetString()!);
                     break;
                 case "setAccountNickname":
                     if (root.TryGetProperty("nickname", out var nicknameValue) && nicknameValue.ValueKind == JsonValueKind.String)
@@ -391,6 +391,7 @@ public partial class MainWindow : Window
             session.Usage = session.Usage with { Status = "error", Message = ex is FileNotFoundException
                 ? $"{AiServices.Name(session.Profile.Service)} CLI를 설치한 뒤 로그인해주세요." : "조회 실패 · CLI 로그인과 네트워크를 확인해주세요." };
         }
+        finally { session.ReleaseIdleResources(); }
     }
 
     private IAccountSession CreateSession(AiAccountProfile profile) => profile.Service switch
@@ -400,17 +401,7 @@ public partial class MainWindow : Window
         _ => throw new InvalidOperationException("Unsupported AI service.")
     };
 
-    private void SaveConnections()
-    {
-        var codex = _sessions["codex"].Profile;
-        var claude = _sessions["claude"].Profile;
-        _connections = new(codex.UseSystem, claude.UseSystem, codex.Enabled, claude.Enabled);
-        WidgetStorage.Write(Path.Combine(_dataDirectory, "account-profiles.json"), _accountProfiles);
-        // Keep the previous version's metadata readable without copying any credentials.
-        WidgetStorage.Write(Path.Combine(_dataDirectory, "codex-accounts.json"), new CodexAccountPreferences(
-            _accountProfiles.Profiles.Where(p => p.Service == "codex").Select(p => new CodexProfile(p.Id, p.Name, p.Enabled, p.UseSystem)).ToArray()));
-        WidgetStorage.Write(Path.Combine(_dataDirectory, "connections.json"), _connections);
-    }
+    private void SaveConnections() => _connections = _accountProfiles.Save(_dataDirectory);
 
     private string AccountTarget(JsonElement message, string? service = null)
     {
@@ -487,6 +478,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            session.ReleaseIdleResources();
             _codexLoginUrl = null; _loginProvider = null;
             _loginCancellation.Dispose(); _loginCancellation = null;
             if (!_closed) Publish();
@@ -565,21 +557,35 @@ public partial class MainWindow : Window
         var updated = _accountProfiles.Add(service, out var profile);
         WidgetStorage.Write(Path.Combine(_dataDirectory, "account-profiles.json"), updated);
         _accountProfiles = updated; _sessions.Add(profile.Id, CreateSession(profile)); SaveConnections();
-        await SetProviderVisibilityAsync(profile.Id, true);
+        await ShowProviderAsync(profile.Id);
         _notice = $"{profile.Name} 카드를 추가했습니다. 계정 연결에서 로그인해주세요."; Publish();
         return profile.Id;
     }
-    private async Task SetProviderVisibilityAsync(string id, bool visible)
+    private void RemoveAccount(string id)
     {
-        if (!_sessions.TryGetValue(id, out var session) || AuthBusy || _busy) return;
-        var ids = _dashboard.ProviderIds.ToList();
-        if (visible ? ids.Contains(id) : !ids.Contains(id)) return;
-        if (visible) ids.Add(id); else ids.Remove(id);
-        _dashboard = new(ids.ToArray());
-        WidgetStorage.Write(Path.Combine(_dataDirectory, "dashboard.json"), _dashboard);
-        if (!visible) session.RestartClient();
+        if (_closed || _busy || AuthBusy || !_sessions.TryGetValue(id, out var session)) return;
+        var profile = session.Profile;
+        var profiles = _accountProfiles.Remove(id);
+        var dashboard = new DashboardPreferences(_dashboard.ProviderIds.Where(provider => provider != id).ToArray());
+        if (session is ClaudeSession claude && claude.Bridge.Installed) claude.Bridge.Uninstall();
+        // Delete only the app entry; retain CLI login files and local usage history.
+        WidgetStorage.Write(Path.Combine(_dataDirectory, "dashboard.json"), dashboard);
+        var connections = profiles.Save(_dataDirectory);
+        _accountProfiles = profiles; _dashboard = dashboard; _connections = connections;
+        session.Dispose();
+        _sessions.Remove(id);
+        if (id == profile.Service) _sessions.Add(id, CreateSession(profiles.Profiles.Single(p => p.Id == id)));
+        _notice = $"{profile.DisplayName} 계정 항목을 삭제했습니다.";
         Publish();
-        if (visible && !_testMode && session.Profile.Enabled) await RefreshAsync();
+    }
+    private async Task ShowProviderAsync(string id)
+    {
+        if (_closed || !_sessions.TryGetValue(id, out var session) || AuthBusy || _busy || _dashboard.ProviderIds.Contains(id)) return;
+        var dashboard = new DashboardPreferences([.. _dashboard.ProviderIds, id]);
+        WidgetStorage.Write(Path.Combine(_dataDirectory, "dashboard.json"), dashboard);
+        _dashboard = dashboard;
+        Publish();
+        if (!_testMode && session.Profile.Enabled) await RefreshAsync();
     }
     private double MaximumCardHeight()
     {

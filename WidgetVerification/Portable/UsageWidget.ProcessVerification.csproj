@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../UsageWidget/AccountConnection.cs;../../UsageWidget/AccountSessions.cs;../../UsageWidget/AiAccountProfiles.cs;../../UsageWidget/ClaudeAuthClient.cs;../../UsageWidget/ClaudeBridge.cs;../../UsageWidget/ClaudeUsageControl.cs;../../UsageWidget/CodexAccounts.cs;../../UsageWidget/CodexClient.cs;../../UsageWidget/DailyUsageTracker.cs;../../UsageWidget/DashboardPreferences.cs;../../UsageWidget/MeasurementPreferences.cs;../../UsageWidget/UsageModels.cs;../../UsageWidget/WidgetStorage.cs"
+             Link="Production/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

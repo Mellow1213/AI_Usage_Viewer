@@ -5,4 +5,5 @@
     <RollForward>Major</RollForward><AssemblyName>UsageWidget.Verification</AssemblyName>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../UsageWidget/UsageWidget.csproj" /></ItemGroup>
+  <ItemGroup><Compile Remove="Portable/**/*.cs" /></ItemGroup>
 </Project>

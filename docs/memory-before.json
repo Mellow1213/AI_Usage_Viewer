@@ -1,0 +1,2885 @@
+{
+  "unit": "bytes",
+  "metric": "physical footprint of app resource coalition",
+  "fixture": true,
+  "result": {
+    "passed": true,
+    "reopenMilliseconds": [
+      25.0229583325563,
+      10.999999998603016,
+      14.71254166244762,
+      37.63095832982799
+    ],
+    "webLoadedWhileHidden": true
+  },
+  "phases": {
+    "cold-hidden": {
+      "samples": 6,
+      "meanMiB": 58.44883728027344,
+      "processCounts": [
+        6
+      ],
+      "webLoaded": true
+    },
+    "expanded": {
+      "samples": 7,
+      "meanMiB": 117.54181453159877,
+      "processCounts": [
+        6
+      ],
+      "webLoaded": true
+    },
+    "compact": {
+      "samples": 6,
+      "meanMiB": 110.10023371378581,
+      "processCounts": [
+        6
+      ],
+      "webLoaded": true
+    },
+    "hidden": {
+      "samples": 6,
+      "meanMiB": 89.75385665893555,
+      "processCounts": [
+        6
+      ],
+      "webLoaded": true
+    },
+    "reopened": {
+      "samples": 7,
+      "meanMiB": 104.58645738874164,
+      "processCounts": [
+        6
+      ],
+      "webLoaded": true
+    },
+    "hidden-after-cycles": {
+      "samples": 6,
+      "meanMiB": 92.45959726969402,
+      "processCounts": [
+        6
+      ],
+      "webLoaded": true
+    }
+  },
+  "samples": [
+    {
+      "phase": "cold-hidden",
+      "elapsedSeconds": 4.158468416,
+      "webLoaded": true,
+      "footprintBytes": 61542000,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 23610160,
+          "auxiliary": {
+            "phys_footprint_peak": 29082416,
+            "phys_footprint": 23610160
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 19661832,
+          "auxiliary": {
+            "phys_footprint_peak": 22938632,
+            "phys_footprint": 19661832
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 6652384,
+          "auxiliary": {
+            "phys_footprint_peak": 7471584,
+            "phys_footprint": 6652384
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5734880,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5734880
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3260944,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3260944
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3015016,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 3015016
+          }
+        }
+      ]
+    },
+    {
+      "phase": "cold-hidden",
+      "elapsedSeconds": 5.2798859160000005,
+      "webLoaded": true,
+      "footprintBytes": 61820528,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 23708464,
+          "auxiliary": {
+            "phys_footprint_peak": 29082416,
+            "phys_footprint": 23708464
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 19776520,
+          "auxiliary": {
+            "phys_footprint_peak": 22938632,
+            "phys_footprint": 19776520
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 6717920,
+          "auxiliary": {
+            "phys_footprint_peak": 7471584,
+            "phys_footprint": 6717920
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5718496,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5718496
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3260944,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3260944
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3031400,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 3031400
+          }
+        }
+      ]
+    },
+    {
+      "phase": "cold-hidden",
+      "elapsedSeconds": 6.39308075,
+      "webLoaded": true,
+      "footprintBytes": 61214320,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 23708464,
+          "auxiliary": {
+            "phys_footprint_peak": 29082416,
+            "phys_footprint": 23708464
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 19481608,
+          "auxiliary": {
+            "phys_footprint_peak": 22938632,
+            "phys_footprint": 19481608
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 6668768,
+          "auxiliary": {
+            "phys_footprint_peak": 7471584,
+            "phys_footprint": 6668768
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5587424,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5587424
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "cold-hidden",
+      "elapsedSeconds": 7.510477458,
+      "webLoaded": true,
+      "footprintBytes": 61083248,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 23708464,
+          "auxiliary": {
+            "phys_footprint_peak": 29082416,
+            "phys_footprint": 23708464
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 19432456,
+          "auxiliary": {
+            "phys_footprint_peak": 22938632,
+            "phys_footprint": 19432456
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 6619616,
+          "auxiliary": {
+            "phys_footprint_peak": 7471584,
+            "phys_footprint": 6619616
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "cold-hidden",
+      "elapsedSeconds": 8.62171375,
+      "webLoaded": true,
+      "footprintBytes": 61034096,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 23708464,
+          "auxiliary": {
+            "phys_footprint_peak": 29082416,
+            "phys_footprint": 23708464
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 19383304,
+          "auxiliary": {
+            "phys_footprint_peak": 22938632,
+            "phys_footprint": 19383304
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 6619616,
+          "auxiliary": {
+            "phys_footprint_peak": 7471584,
+            "phys_footprint": 6619616
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "cold-hidden",
+      "elapsedSeconds": 9.741411625,
+      "webLoaded": true,
+      "footprintBytes": 61034096,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 23708464,
+          "auxiliary": {
+            "phys_footprint_peak": 29082416,
+            "phys_footprint": 23708464
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 19383304,
+          "auxiliary": {
+            "phys_footprint_peak": 22938632,
+            "phys_footprint": 19383304
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 6619616,
+          "auxiliary": {
+            "phys_footprint_peak": 7471584,
+            "phys_footprint": 6619616
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "expanded",
+      "elapsedSeconds": 13.877489707999999,
+      "webLoaded": true,
+      "footprintBytes": 126029784,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 52986720,
+          "auxiliary": {
+            "phys_footprint_peak": 69976928,
+            "phys_footprint": 52986720
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 35996728,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 35980344
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 25690856,
+          "auxiliary": {
+            "phys_footprint_peak": 40354512,
+            "phys_footprint": 25690856
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2998632,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2998632
+          }
+        }
+      ]
+    },
+    {
+      "phase": "expanded",
+      "elapsedSeconds": 14.9968455,
+      "webLoaded": true,
+      "footprintBytes": 123342808,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 50119520,
+          "auxiliary": {
+            "phys_footprint_peak": 69976928,
+            "phys_footprint": 50103136
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 35996728,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 35996728
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 25871080,
+          "auxiliary": {
+            "phys_footprint_peak": 40354512,
+            "phys_footprint": 25821928
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2998632,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2998632
+          }
+        }
+      ]
+    },
+    {
+      "phase": "expanded",
+      "elapsedSeconds": 16.127219833,
+      "webLoaded": true,
+      "footprintBytes": 122933208,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 49365856,
+          "auxiliary": {
+            "phys_footprint_peak": 69976928,
+            "phys_footprint": 49365856
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 35996728,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 35996728
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 26215144,
+          "auxiliary": {
+            "phys_footprint_peak": 40354512,
+            "phys_footprint": 26231528
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2998632,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2998632
+          }
+        }
+      ]
+    },
+    {
+      "phase": "expanded",
+      "elapsedSeconds": 17.253516625,
+      "webLoaded": true,
+      "footprintBytes": 123572184,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 52740960,
+          "auxiliary": {
+            "phys_footprint_peak": 69976928,
+            "phys_footprint": 52740960
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 35767352,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 35767352
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 23724776,
+          "auxiliary": {
+            "phys_footprint_peak": 40354512,
+            "phys_footprint": 23724776
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2982248,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2982248
+          }
+        }
+      ]
+    },
+    {
+      "phase": "expanded",
+      "elapsedSeconds": 18.35267525,
+      "webLoaded": true,
+      "footprintBytes": 123703256,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 52888416,
+          "auxiliary": {
+            "phys_footprint_peak": 69976928,
+            "phys_footprint": 52888416
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 35750968,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 35750968
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 23724776,
+          "auxiliary": {
+            "phys_footprint_peak": 40354512,
+            "phys_footprint": 23724776
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2982248,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2982248
+          }
+        }
+      ]
+    },
+    {
+      "phase": "expanded",
+      "elapsedSeconds": 19.495820916,
+      "webLoaded": true,
+      "footprintBytes": 121540568,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 50692960,
+          "auxiliary": {
+            "phys_footprint_peak": 69976928,
+            "phys_footprint": 50692960
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 35669048,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 35669048
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 23839464,
+          "auxiliary": {
+            "phys_footprint_peak": 40354512,
+            "phys_footprint": 23855848
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2982248,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2982248
+          }
+        }
+      ]
+    },
+    {
+      "phase": "expanded",
+      "elapsedSeconds": 20.587543416000003,
+      "webLoaded": true,
+      "footprintBytes": 121638872,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 50856800,
+          "auxiliary": {
+            "phys_footprint_peak": 69976928,
+            "phys_footprint": 50856800
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 35669048,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 35669048
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 23773928,
+          "auxiliary": {
+            "phys_footprint_peak": 40354512,
+            "phys_footprint": 23773928
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2982248,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2982248
+          }
+        }
+      ]
+    },
+    {
+      "phase": "compact",
+      "elapsedSeconds": 23.719283041,
+      "webLoaded": true,
+      "footprintBytes": 121475056,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 50004832,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 50004832
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30901304,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30901304
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 29246208,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 29246208
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5538272,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5538272
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2982248,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2982248
+          }
+        }
+      ]
+    },
+    {
+      "phase": "compact",
+      "elapsedSeconds": 24.846100833,
+      "webLoaded": true,
+      "footprintBytes": 121180144,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 52233056,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 52233056
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30901304,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30901304
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 26723072,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 26723072
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5538272,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5538272
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2982248,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2982248
+          }
+        }
+      ]
+    },
+    {
+      "phase": "compact",
+      "elapsedSeconds": 25.968017,
+      "webLoaded": true,
+      "footprintBytes": 117149680,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 52347744,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 52347744
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30852152,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30868536
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 22643456,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 22643456
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5538272,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5538272
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2982248,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2982248
+          }
+        }
+      ]
+    },
+    {
+      "phase": "compact",
+      "elapsedSeconds": 27.088673333000003,
+      "webLoaded": true,
+      "footprintBytes": 113774552,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 49087328,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 49087328
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30589984,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30589984
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 22774528,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 22774528
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5538272,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5538272
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2982248,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2982248
+          }
+        }
+      ]
+    },
+    {
+      "phase": "compact",
+      "elapsedSeconds": 28.217075166,
+      "webLoaded": true,
+      "footprintBytes": 109563864,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 44974944,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 44974944
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30573600,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30573600
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 22692608,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 22692608
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5538272,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5538272
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2982248,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2982248
+          }
+        }
+      ]
+    },
+    {
+      "phase": "compact",
+      "elapsedSeconds": 29.331423833000002,
+      "webLoaded": true,
+      "footprintBytes": 109547480,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 44958560,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 44958560
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30589984,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30589984
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 22676224,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 22676224
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5538272,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5538272
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2982248,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2982248
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden",
+      "elapsedSeconds": 38.4961255,
+      "webLoaded": true,
+      "footprintBytes": 94261208,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 38650720,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 38650720
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 28230688,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 28230688
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 16073472,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 16073472
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2949480,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2949480
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden",
+      "elapsedSeconds": 39.617973332999995,
+      "webLoaded": true,
+      "footprintBytes": 94244824,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 38634336,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 38634336
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 28230688,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 28230688
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 16073472,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 16073472
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2949480,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2949480
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden",
+      "elapsedSeconds": 40.706674,
+      "webLoaded": true,
+      "footprintBytes": 94244824,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 38634336,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 38634336
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 28230688,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 28230688
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 16073472,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 16073472
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2949480,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2949480
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden",
+      "elapsedSeconds": 41.830404291,
+      "webLoaded": true,
+      "footprintBytes": 94080960,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 38634336,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 38634336
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 28230688,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 28230688
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 15909608,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 15909608
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2949480,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2949480
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden",
+      "elapsedSeconds": 42.953604082999995,
+      "webLoaded": true,
+      "footprintBytes": 94097344,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 38634336,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 38634336
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 28230688,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 28230688
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 15925992,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 15925992
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2949480,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2949480
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden",
+      "elapsedSeconds": 44.075477332999995,
+      "webLoaded": true,
+      "footprintBytes": 93753280,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 38634336,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 38634336
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 27886624,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 27886624
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 15925992,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 15925992
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2949480,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2949480
+          }
+        }
+      ]
+    },
+    {
+      "phase": "reopened",
+      "elapsedSeconds": 47.211928791,
+      "webLoaded": true,
+      "footprintBytes": 109318104,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 46187360,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 46187360
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30376992,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30376992
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 21381888,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 21381888
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3015016,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 3015016
+          }
+        }
+      ]
+    },
+    {
+      "phase": "reopened",
+      "elapsedSeconds": 48.336976207999996,
+      "webLoaded": true,
+      "footprintBytes": 109481944,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 46203744,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 46203744
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30442528,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30442528
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 21431040,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 21431040
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3047784,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 3047784
+          }
+        }
+      ]
+    },
+    {
+      "phase": "reopened",
+      "elapsedSeconds": 49.44092575,
+      "webLoaded": true,
+      "footprintBytes": 108400600,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 45122400,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 45122400
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30442528,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30442528
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 21431040,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 21431040
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3047784,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 3047784
+          }
+        }
+      ]
+    },
+    {
+      "phase": "reopened",
+      "elapsedSeconds": 50.565834458,
+      "webLoaded": true,
+      "footprintBytes": 110481368,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 47285088,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 47285088
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30360608,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30376992
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 21431040,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 21431040
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3047784,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 3047784
+          }
+        }
+      ]
+    },
+    {
+      "phase": "reopened",
+      "elapsedSeconds": 51.692479625,
+      "webLoaded": true,
+      "footprintBytes": 110333912,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 47252320,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 47252320
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30327840,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30327840
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 21431040,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 21431040
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "reopened",
+      "elapsedSeconds": 52.814792125,
+      "webLoaded": true,
+      "footprintBytes": 110350296,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 47268704,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 47268704
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30327840,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30327840
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 21431040,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 21431040
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "reopened",
+      "elapsedSeconds": 53.947165749999996,
+      "webLoaded": true,
+      "footprintBytes": 109301720,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 46220128,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 46220128
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 30327840,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 30327840
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 21431040,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 21431040
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5554656,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5554656
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden-after-cycles",
+      "elapsedSeconds": 93.237332791,
+      "webLoaded": true,
+      "footprintBytes": 97210328,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 41976672,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 41976672
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 28050488,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 28050488
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 15893224,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 15893224
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5521888,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5521888
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden-after-cycles",
+      "elapsedSeconds": 94.35985699999999,
+      "webLoaded": true,
+      "footprintBytes": 96899032,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 41665376,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 41632608
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 28050488,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 28050488
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 15893224,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 15893224
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5521888,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5521888
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden-after-cycles",
+      "elapsedSeconds": 95.470966375,
+      "webLoaded": true,
+      "footprintBytes": 96899032,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 41665376,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 41665376
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 28050488,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 28050488
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 15893224,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 15893224
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5521888,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5521888
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden-after-cycles",
+      "elapsedSeconds": 96.587437083,
+      "webLoaded": true,
+      "footprintBytes": 96899032,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 41665376,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 41665376
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 28050488,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 28050488
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 15893224,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 15893224
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5521888,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5521888
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden-after-cycles",
+      "elapsedSeconds": 97.703119291,
+      "webLoaded": true,
+      "footprintBytes": 96899032,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 41665376,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 41665376
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 28050488,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 28050488
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 15893224,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 15893224
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5521888,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5521888
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    },
+    {
+      "phase": "hidden-after-cycles",
+      "elapsedSeconds": 98.825407208,
+      "webLoaded": true,
+      "footprintBytes": 96899032,
+      "processes": [
+        {
+          "name": "com.apple.WebKit.WebContent",
+          "pid": 51676,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 41665376,
+          "auxiliary": {
+            "phys_footprint_peak": 89195360,
+            "phys_footprint": 41665376
+          }
+        },
+        {
+          "name": "AIUsageWidget",
+          "pid": 51673,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 28050488,
+          "auxiliary": {
+            "phys_footprint_peak": 139019320,
+            "phys_footprint": 28050488
+          }
+        },
+        {
+          "name": "com.apple.WebKit.GPU",
+          "pid": 51675,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 15893224,
+          "auxiliary": {
+            "phys_footprint_peak": 44598016,
+            "phys_footprint": 15893224
+          }
+        },
+        {
+          "name": "com.apple.WebKit.Networking",
+          "pid": 51677,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 5521888,
+          "auxiliary": {
+            "phys_footprint_peak": 6504928,
+            "phys_footprint": 5521888
+          }
+        },
+        {
+          "name": "com.apple.audio.SandboxHelper",
+          "pid": 51678,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 3195408,
+          "auxiliary": {
+            "phys_footprint_peak": 5702160,
+            "phys_footprint": 3195408
+          }
+        },
+        {
+          "name": "SetStoreUpdateService",
+          "pid": 51674,
+          "translated": false,
+          "page size": 16384,
+          "footprint": 2965864,
+          "auxiliary": {
+            "phys_footprint_peak": 4538632,
+            "phys_footprint": 2965864
+          }
+        }
+      ]
+    }
+  ],
+  "baselineCommit": "9c76c690bd04d6db250af20d586bfa198ad83147",
+  "measuredAt": "2026-10-15",
+  "platform": {
+    "os": "macOS 27.0.1 (26A434)",
+    "architecture": "arm64"
+  }
+}

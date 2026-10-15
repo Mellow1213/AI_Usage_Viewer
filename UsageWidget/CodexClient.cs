@@ -51,10 +51,12 @@ internal sealed class CodexClient(string? profileHome = null, Func<ProcessStartI
     }
     internal async Task CancelLoginAsync(CancellationToken token)
     {
-        if (_loginId is not null && _process is { HasExited: false })
-            await CallAsync("account/login/cancel", new { loginId = _loginId }, token);
-        _loginId = null;
-        _login?.TrySetCanceled();
+        try
+        {
+            if (_loginId is not null && _process is { HasExited: false })
+                await CallAsync("account/login/cancel", new { loginId = _loginId }, token);
+        }
+        finally { _loginId = null; _login?.TrySetCanceled(); }
     }
     internal async Task LogoutAsync(CancellationToken token)
     {
@@ -70,6 +72,17 @@ internal sealed class CodexClient(string? profileHome = null, Func<ProcessStartI
         var result = await CallAsync("account/rateLimits/read", new { }, token);
         return UsageParser.Codex(result);
     }
+
+    internal void ReleaseIdleResources()
+    {
+        // A polling batch has finished. Keep active login and request pipes alive,
+        // but do not retain one idle app-server process for every account.
+        if (!_pending.IsEmpty || _loginId is not null || _login?.Task.IsCompleted == false) return;
+        Stop();
+        _loginCompletions.Clear();
+    }
+
+    internal int? ReaderProcessId => _process is { HasExited: false } process ? process.Id : null;
 
     private async Task EnsureStartedAsync(CancellationToken token)
     {
@@ -170,6 +183,7 @@ internal sealed class CodexClient(string? profileHome = null, Func<ProcessStartI
         {
             while (await process.StandardOutput.ReadLineAsync() is { } line)
             {
+                if (!ReferenceEquals(_process, process)) break;
                 try
                 {
                     using var doc = JsonDocument.Parse(line);
@@ -195,7 +209,9 @@ internal sealed class CodexClient(string? profileHome = null, Func<ProcessStartI
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
         finally
         {
-            foreach (var request in _pending.Values) request.TrySetException(new IOException("Codex connection closed."));
+            // An old reader can finish draining after a new polling batch starts.
+            if (ReferenceEquals(_process, process))
+                foreach (var request in _pending.Values) request.TrySetException(new IOException("Codex connection closed."));
         }
     }
 
@@ -207,8 +223,12 @@ internal sealed class CodexClient(string? profileHome = null, Func<ProcessStartI
     private void Stop()
     {
         // This client never starts a model turn or a child command; stop only its owned reader.
-        try { if (_process is { HasExited: false }) _process.Kill(); }
+        var process = _process;
+        _process = null;
+        foreach (var request in _pending.Values) request.TrySetException(new IOException("Codex connection closed."));
+        try { if (process is { HasExited: false }) process.Kill(); }
         catch (InvalidOperationException) { }
+        finally { process?.Dispose(); }
     }
-    public void Dispose() { _disposed = true; _login?.TrySetCanceled(); Stop(); _process?.Dispose(); }
+    public void Dispose() { _disposed = true; _login?.TrySetCanceled(); Stop(); }
 }

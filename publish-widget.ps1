@@ -25,6 +25,10 @@ try {
     }
     $remoteHead = (Invoke-ReleaseCommand git @('ls-remote', 'origin', 'refs/heads/main')) -split '\s+'
     if ($remoteHead[0] -ne $commit) { throw 'Push this source commit to origin/main before publishing.' }
+    $runs = (Invoke-ReleaseCommand gh @('run', 'list', '--repo', $repository, '--workflow', 'desktop-verification.yml', '--commit', $commit,
+        '--status', 'success', '--limit', '1', '--json', 'databaseId,headSha')) | ConvertFrom-Json
+    if (@($runs).Count -eq 0 -or $runs[0].headSha -ne $commit) { throw 'Desktop verification must pass for this exact source commit before publishing.' }
+    $verificationRun = [string]$runs[0].databaseId
     [xml]$project = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'UsageWidget\UsageWidget.csproj') -Raw
     if ([string]$project.Project.PropertyGroup.Version -ne $Version) { throw 'Set UsageWidget.csproj Version to the release version and commit it first.' }
     if (-not (Test-Path -LiteralPath $notes)) { throw "Missing release notes: docs/releases/$Version.md" }
@@ -50,6 +54,22 @@ try {
     } elseif (-not $ResumeDraft) { throw 'Release output already exists. Use a new version, or inspect and resume this exact build with -ResumeDraft.' }
     $provenance = Get-Content -LiteralPath (Join-Path $packageDirectory 'release-build.json') -Raw | ConvertFrom-Json
     if ($provenance.sourceCommit -ne $commit -or $provenance.version -ne $Version) { throw 'Existing packages were built from a different source/version.' }
+    $macFiles = foreach ($platform in @(@{ Runner='macos-14'; Arch='arm64' }, @{ Runner='macos-15-intel'; Arch='x86_64' })) {
+        $macDirectory = Join-Path $packageDirectory ('macos-' + $platform.Arch)
+        if (-not (Test-Path -LiteralPath $macDirectory)) {
+            $null = Invoke-ReleaseCommand gh @('run', 'download', $verificationRun, '--repo', $repository,
+                '--name', ('macos-' + $platform.Runner), '--dir', $macDirectory)
+        }
+        $macBuild = Get-Content -LiteralPath (Join-Path $macDirectory ('build-' + $platform.Arch + '.json')) -Raw | ConvertFrom-Json
+        if ($macBuild.sourceCommit -ne $commit -or $macBuild.version -ne $Version -or $macBuild.architecture -ne $platform.Arch) {
+            throw 'Mac artifacts must come from the same verified source commit, version and CPU architecture.'
+        }
+        $macName = "AIUsageWidget-$Version-macos-$($platform.Arch).zip"
+        Copy-Item -LiteralPath (Join-Path $macDirectory $macName) -Destination (Join-Path $packageDirectory $macName) -Force
+        Join-Path $packageDirectory $macName
+    }
+    $provenance | Add-Member -NotePropertyName macosVerificationRunId -NotePropertyValue $verificationRun -Force
+    $provenance | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $packageDirectory 'release-build.json') -Encoding utf8
     $feed = Get-Content -LiteralPath (Join-Path $packageDirectory 'releases.win.json') -Raw | ConvertFrom-Json
     if (@($feed.Assets).Count -ne 1 -or $feed.Assets[0].PackageId -ne 'Mellow.AIUsageViewer' -or
         $feed.Assets[0].Version -ne $Version -or $feed.Assets[0].Type -ne 'Full') { throw 'Unexpected package identity, version or feed contents.' }
@@ -60,6 +80,7 @@ try {
         (Get-FileHash -LiteralPath $fullPackage -Algorithm SHA256).Hash -ne $asset.SHA256) { throw 'Package size/hash does not match the update feed.' }
     $files = @($asset.FileName, 'Mellow.AIUsageViewer-win-Setup.exe', 'Mellow.AIUsageViewer-win-Portable.zip',
         'releases.win.json', 'RELEASES', 'release-build.json') | ForEach-Object { Join-Path $packageDirectory $_ }
+    $files += $macFiles
     $checksums = foreach ($file in $files) {
         '{0}  {1}' -f (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant(), [IO.Path]::GetFileName($file)
     }

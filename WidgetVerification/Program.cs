@@ -29,6 +29,7 @@ internal static partial class Program
             string? error = null;
             try
             {
+                AccountRemovalChecks.Run(Path.Combine(_output, "account-removal"), Check);
                 if (args.Contains("--updates-only")) await VerifyUpdatesAsync();
                 else if (args.Contains("--presence-only")) await VerifyPresenceAsync();
                 else if (args.Contains("--performance-only")) await MeasurePerformanceAsync();
@@ -215,7 +216,7 @@ internal static partial class Program
         await CaptureAsync("provider-picker.png");
         await ScriptAsync("document.querySelector('[aria-label=\"Codex 추가\"]').click()");
         await Task.Delay(250);
-        await AssertScriptAsync("document.querySelectorAll('.provider').length === 1 && !document.querySelector('[aria-label=\"Codex 추가\"]').disabled && document.querySelector('.codex .number').textContent === '—'", "Selecting the first Codex adds one disconnected card and keeps additional-account selection available");
+        await AssertScriptAsync("document.querySelectorAll('.account-box').length === 1 && !document.querySelector('[aria-label=\"AI 계정 추가\"]').disabled && document.querySelector('.codex .account-status').textContent === '미연결'", "Selecting the first Codex opens its disconnected account details and keeps additional-account selection available");
         Check(!AccountProfiles.ReadPreferences(uiProfile).CodexEnabled, "Adding a card does not adopt or log in to an account");
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
         await Task.Delay(400);
@@ -454,13 +455,20 @@ internal static partial class Program
         await Task.Delay(350);
         await AssertScriptAsync("document.querySelector('.menu').getBoundingClientRect().bottom < innerHeight", "Settings menu fits the window");
         await CaptureAsync("settings.png");
+        await ScriptAsync("document.querySelector('[aria-label=\"화면 설정\"]').click()");
+        await Task.Delay(250);
         await AssertScriptAsync("document.querySelectorAll('.dock-option').length===4 && document.querySelectorAll('.dock-option[aria-pressed=\"true\"]').length===1", "Settings offers all four screen corners with the current anchor selected");
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
         await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
         await Task.Delay(250);
-        await ScriptAsync("document.querySelector('[aria-label=\"계정 연결 관리\"]').click()");
+        await ScriptAsync("document.querySelector('[aria-label=\"계정 관리\"]').click()");
         await Task.Delay(250);
-        await AssertScriptAsync("document.querySelectorAll('.account-box').length === 2 && [...document.querySelectorAll('.account-box')].every(box=>box.querySelector('.account-primary').textContent.includes('다른 계정으로 로그인') && box.textContent.includes('기존 CLI 계정 사용'))", "Both connected providers expose explicit switch-account and existing-CLI choices");
+        await AssertScriptAsync("document.querySelectorAll('.account-box').length === 2", "Account manager lists both connected providers");
+        foreach (var id in new[] { "codex", "claude" })
+        {
+            await ExpandAccountAsync(id);
+            await AssertScriptAsync($"document.querySelector('.account-box[data-account-id=\"{id}\"] .account-primary').textContent.includes('다른 계정으로 로그인') && document.querySelector('.account-box[data-account-id=\"{id}\"]').textContent.includes('기존 CLI 계정 사용')", "Connected account details expose switch-account and existing-CLI choices");
+        }
         await CaptureAsync("account-login.png");
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
         await VerifyCornerAnchorsAsync(uiProfile, settings, codex, claude);
@@ -468,18 +476,22 @@ internal static partial class Program
         await Task.Delay(800);
         await AssertScriptAsync("document.querySelector('.codex .number').textContent === '—' && document.querySelector('.claude .number').textContent === '—'", "Expired and missing windows do not show stale or fabricated availability");
         await CaptureAsync("waiting.png");
-        await ScriptAsync("document.querySelector('[aria-label=\"AI 추가\"]').click()");
+        await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
         await Task.Delay(350);
-        var connectionSettings = JsonSerializer.Serialize(AccountProfiles.ReadPreferences(uiProfile), WidgetStorage.Json);
-        await ScriptAsync("document.querySelector('[aria-label=\"Codex 카드 제거\"]').click()");
+        await ScriptAsync("document.querySelector('[aria-label=\"계정 관리\"]').click()");
         await Task.Delay(150);
-        await ScriptAsync("document.querySelector('[aria-label=\"Claude 카드 제거\"]').click()");
+        await ExpandAccountAsync("codex");
+        await ScriptAsync("document.querySelector('[aria-label=\"Codex 계정 항목 삭제\"]').click()");
         await Task.Delay(150);
+        await ExpandAccountAsync("claude");
+        await ScriptAsync("document.querySelector('[aria-label=\"Claude 계정 항목 삭제\"]').click()");
+        await Task.Delay(150);
+        await AssertScriptAsync("document.querySelector('.account-empty')!==null && document.querySelectorAll('.account-box').length===0", "Deleting every account removes all account tags and restore controls");
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
         await Task.Delay(400);
         await AssertScriptAsync("document.querySelector('.empty-dashboard')!==null && document.querySelectorAll('.provider').length===0", "Removing all cards returns to the empty dashboard");
-        Check(DashboardPreferences.Read(uiProfile, new(true, true, true, true)).ProviderIds.Length == 0, "Explicitly empty dashboard stays empty even when accounts remain connected");
-        Check(JsonSerializer.Serialize(AccountProfiles.ReadPreferences(uiProfile), WidgetStorage.Json) == connectionSettings, "Card removal leaves account connection preferences unchanged");
+        Check(DashboardPreferences.Read(uiProfile, new(true, true, true, true)).ProviderIds.Length == 0, "Deleting every account persists an empty dashboard");
+        Check(AccountProfiles.ReadPreferences(uiProfile) == new ConnectionPreferences(), "Deleting the primary accounts clears their saved connection flags");
         await CaptureAsync("removed-all.png");
         _window.WebView!.Navigate("https://example.com/");
         await Task.Delay(250);
@@ -575,13 +587,14 @@ internal static partial class Program
         await Task.Delay(850);
         await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
         await Task.Delay(250);
-        await ScriptAsync("document.querySelector('[aria-label=\"계정 연결 관리\"]').click()");
+        await ScriptAsync("document.querySelector('[aria-label=\"계정 관리\"]').click()");
         await Task.Delay(400);
+        await ExpandAccountAsync(extraClaude.Id);
         await AssertScriptAsync($"document.querySelector('[aria-label=\"AI 계정 추가\"]')!==null && document.querySelectorAll('.account-box').length===4 && !document.querySelector('.account-box[data-account-id=\"{extraClaude.Id}\"]').textContent.includes('기존 CLI 계정 사용')",
             "Common account manager offers an AI chooser and extra Claude slots stay isolated from the system CLI");
         await ScriptAsync($"document.querySelector('.account-box[data-account-id=\"{extraClaude.Id}\"] .account-primary').click()");
         await Task.Delay(900);
-        await AssertScriptAsync($"document.querySelector('.account-box[data-account-id=\"{extraClaude.Id}\"] .account-email').textContent==='claude-two@example.invalid' && document.querySelector('.account-box[data-account-id=\"claude\"] .account-email').textContent==='claude-one@example.invalid'",
+        await AssertScriptAsync($"document.querySelector('.account-box[data-account-id=\"{extraClaude.Id}\"] .account-summary-copy small').textContent==='claude-two@example.invalid' && document.querySelector('.account-box[data-account-id=\"claude\"] .account-summary-copy small').textContent==='claude-one@example.invalid'",
             "Extra Claude login button completes the selected CLI profile's auth flow without replacing the first account");
         await CaptureAsync("multi-ai-accounts.png");
         await ScriptAsync("document.querySelector('[aria-label=\"AI 계정 추가\"]').click()");
@@ -599,8 +612,9 @@ internal static partial class Program
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
         await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
         await Task.Delay(250);
-        await ScriptAsync("document.querySelector('[aria-label=\"계정 연결 관리\"]').click()");
+        await ScriptAsync("document.querySelector('[aria-label=\"계정 관리\"]').click()");
         await Task.Delay(300);
+        await ExpandAccountAsync(extraClaude.Id);
         await ScriptAsync($"[...document.querySelectorAll('.account-box[data-account-id=\"{extraClaude.Id}\"] .account-secondary')].find(button=>button.textContent==='로그아웃').click()");
         await Task.Delay(700);
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
@@ -613,9 +627,13 @@ internal static partial class Program
             && !File.Exists(Path.Combine(secondClaudeHome, "fixture-login")), "Claude logout and cache clearing remain local to the chosen account");
         await ScriptAsync($"window.chrome.webview.postMessage({{action:'removeProvider',provider:'claude'}})");
         await Task.Delay(250);
-        Check(AiAccountPreferences.Read(directory, new()).Profiles.Single(p => p.Id == "claude").Enabled, "Hiding a Claude card keeps its saved login state");
-        await ScriptAsync("window.chrome.webview.postMessage({action:'showProvider',provider:'claude'})");
-        await Task.Delay(250);
+        Check(AiAccountPreferences.Read(directory, new()).Profiles.Single(p => p.Id == "claude") == new AiAccountProfile("claude", "claude", "Claude"),
+            "Deleting the primary Claude account clears its saved tag and connection settings");
+        Check(File.Exists(Path.Combine(firstClaudeHome, "fixture-login")) && File.Exists(firstSnapshot),
+            "Deleting a Claude app entry preserves its CLI login and local history");
+        using (var settings = JsonDocument.Parse(File.ReadAllText(Path.Combine(firstClaudeHome, "settings.json"))))
+            Check(settings.RootElement.GetProperty("statusLine").GetProperty("command").GetString() == "printf 'original'",
+                "Deleting a Claude account restores its original statusline");
         var expectedIds = DashboardPreferences.Read(directory, new()).ProviderIds;
         _window.Close();
         _window = new MainWindow(directory, testMode: true, codexFactory: CodexFactory, openCodexLogin: _ => { }, claudeFactory: ClaudeFactory);
@@ -624,40 +642,36 @@ internal static partial class Program
         await _window.RefreshAsync(true);
         await Task.Delay(1100);
         Check(await ScriptAsync("document.querySelectorAll('.provider').length") == expectedIds.Length.ToString(), "Mixed-service account selections and order survive restart");
-        await AssertScriptAsync($"document.querySelector('[data-account-id=\"{extraClaude.Id}\"] .number').textContent==='—' && document.querySelector('[data-account-id=\"claude\"] .number').textContent==='70'",
-            "Restart preserves Claude's per-account logout state without affecting its connected sibling");
+        await AssertScriptAsync($"document.querySelector('[data-account-id=\"{extraClaude.Id}\"] .number').textContent==='—' && !document.querySelector('[data-account-id=\"claude\"]') && document.querySelector('[data-account-id=\"codex\"] .number').textContent==='88'",
+            "Restart preserves deleted and logged-out Claude states without affecting Codex");
         var savedMetadata = File.ReadAllText(Path.Combine(directory, "account-profiles.json"));
         Check(!savedMetadata.Contains("@") && !savedMetadata.Contains("fixture-inherited"), "Shared account registry contains neither account emails nor credentials");
-        await ScriptAsync("window.chrome.webview.postMessage({action:'removeProvider',provider:'claude'})");
+        await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
         await Task.Delay(250);
-        _window.Close();
-        _window = new MainWindow(directory, testMode: true, codexFactory: CodexFactory, openCodexLogin: _ => { }, claudeFactory: ClaudeFactory);
-        _window.Show();
-        await WaitAsync(() => _window.Ready, "Hidden primary account restart ready");
-        await _window.RefreshAsync(true);
-        await ScriptAsync("document.querySelector('[aria-label=\"AI 추가\"]').click()");
+        await ScriptAsync("document.querySelector('[aria-label=\"계정 관리\"]').click()");
         await Task.Delay(400);
-        await AssertScriptAsync("[...document.querySelectorAll('.selected-provider')].some(row=>row.querySelector('span').textContent==='Claude' && row.querySelector('button').textContent.includes('다시 표시'))",
-            "A saved hidden primary account remains discoverable after restart without polling its credentials");
-        var hiddenCount = AiAccountPreferences.Read(directory, new()).Profiles.Length;
+        await AssertScriptAsync("!document.querySelector('.account-box[data-account-id=\"claude\"]') && !document.querySelector('.account-restore')",
+            "A deleted primary account leaves no saved tag or restore action after restart");
+        var remainingCount = AiAccountPreferences.Read(directory, new()).Profiles.Length;
+        await ScriptAsync("document.querySelector('[aria-label=\"AI 계정 추가\"]').click()");
+        await Task.Delay(250);
         await ScriptAsync("document.querySelector('[aria-label=\"Claude 추가\"]').click()");
         await Task.Delay(300);
-        Check(AiAccountPreferences.Read(directory, new()).Profiles.Length == hiddenCount + 1
+        Check(AiAccountPreferences.Read(directory, new()).Profiles.Length == remainingCount + 1
             && !DashboardPreferences.Read(directory, new()).ProviderIds.Contains("claude"),
-            "Adding another AI account creates a new slot rather than silently restoring a hidden saved account");
-        await ScriptAsync("[...document.querySelectorAll('.selected-provider')].find(row=>row.querySelector('span').textContent==='Claude' && row.querySelector('button').textContent.includes('다시 표시')).querySelector('button').click()");
-        await Task.Delay(250);
-        Check(DashboardPreferences.Read(directory, new()).ProviderIds.Contains("claude"), "Saved primary account restores through the shared picker action");
+            "Adding a sibling AI account does not restore the deleted primary account");
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
         var preferencesBeforeRename = AiAccountPreferences.Read(directory, new()).Profiles.Select(p => (p.Id, p.Service, p.Name, p.Enabled, p.UseSystem)).ToArray();
         await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
         await Task.Delay(250);
-        await ScriptAsync("document.querySelector('[aria-label=\"계정 연결 관리\"]').click()");
+        await ScriptAsync("document.querySelector('[aria-label=\"계정 관리\"]').click()");
         await Task.Delay(350);
+        await ExpandAccountAsync("codex");
         await ScriptAsync("(()=>{const input=document.getElementById('nickname-codex');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'  개인용  ');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
         await Task.Delay(100);
         await ScriptAsync("document.querySelector('.account-box[data-account-id=\"codex\"] .account-nickname button').click()");
         await Task.Delay(250);
+        await ExpandAccountAsync(extraClaude.Id);
         await ScriptAsync($"(()=>{{const input=document.getElementById('nickname-{extraClaude.Id}');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'업무용');input.dispatchEvent(new Event('input',{{bubbles:true}}));}})()");
         await Task.Delay(100);
         await ScriptAsync($"document.querySelector('.account-box[data-account-id=\"{extraClaude.Id}\"] .account-nickname button').click()");
@@ -778,8 +792,9 @@ internal static partial class Program
         await CaptureAsync("multi-codex-cards.png");
         await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
         await Task.Delay(250);
-        await ScriptAsync("document.querySelector('[aria-label=\"계정 연결 관리\"]').click()");
+        await ScriptAsync("document.querySelector('[aria-label=\"계정 관리\"]').click()");
         await Task.Delay(400);
+        await ExpandAccountAsync(second.Id);
         await AssertScriptAsync($"document.querySelectorAll('.account-box.codex').length===3 && document.querySelector('[aria-label=\"AI 계정 추가\"]')!==null && !document.querySelector('.account-box[data-account-id=\"{second.Id}\"]').textContent.includes('기존 CLI 계정 사용')",
             "Connection management exposes an add-account action and keeps extra accounts isolated from the system CLI");
         await CaptureAsync("multi-codex-accounts.png");
@@ -788,7 +803,7 @@ internal static partial class Program
         await Task.Delay(900);
         Check(openedLoginUrls.Count == 1 && AccountProfiles.IsOfficialCodexLoginUrl(openedLoginUrls[0]),
             "The extra account login button drives official OAuth for its own isolated CLI profile");
-        await AssertScriptAsync($"document.querySelector('.account-box[data-account-id=\"{second.Id}\"] .account-email').textContent==='two@example.invalid' && document.querySelector('.account-box[data-account-id=\"codex\"] .account-email').textContent==='one@example.invalid'",
+        await AssertScriptAsync($"document.querySelector('.account-box[data-account-id=\"{second.Id}\"] .account-summary-copy small').textContent==='two@example.invalid' && document.querySelector('.account-box[data-account-id=\"codex\"] .account-summary-copy small').textContent==='one@example.invalid'",
             "Completing a second account's OAuth preserves the original account identity");
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
         await _window.DisconnectAsync(second.Id);
@@ -803,11 +818,13 @@ internal static partial class Program
             "Logout persists only the selected slot's connection state");
         await ScriptAsync($"window.chrome.webview.postMessage({{action:'removeProvider',provider:'{third.Id}'}})");
         await Task.Delay(200);
-        Check(CodexAccountPreferences.Read(profile, new()).Profiles.Single(p => p.Id == third.Id).Enabled,
-            "Hiding a Codex card preserves its login preference");
+        Check(!AiAccountPreferences.Read(profile, new()).Profiles.Any(p => p.Id == third.Id)
+            && !CodexAccountPreferences.Read(profile, new()).Profiles.Any(p => p.Id == third.Id)
+            && File.Exists(Path.Combine(AccountProfiles.CodexHome(profile, third.Id), "fixture-login")),
+            "Deleting a Codex account removes current and legacy tags while preserving its CLI login files");
         await ScriptAsync($"window.chrome.webview.postMessage({{action:'showProvider',provider:'{third.Id}'}})");
         await Task.Delay(250);
-        Check(DashboardPreferences.Read(profile, new()).ProviderIds.Contains(third.Id), "Hidden saved Codex account can be restored without creating a new profile");
+        Check(!DashboardPreferences.Read(profile, new()).ProviderIds.Contains(third.Id), "A stale restore request cannot recreate a deleted Codex account");
         await ScriptAsync("document.querySelector('[aria-label=\"AI 추가\"]').click()");
         await Task.Delay(250);
         await ScriptAsync("document.querySelector('[aria-label=\"Codex 추가\"]').click()");
@@ -1187,6 +1204,11 @@ internal static partial class Program
     }
     private static Task<string> StartLogoSamplingAsync() => ScriptAsync("window.logoSamples=[]; window.logoSampling=true; function sampleLogo(){if(!window.logoSampling)return; let visible=0;let peakOpacity=0; for(const svg of document.querySelectorAll('.triangle')){let opacity=1;let shown=true;for(let node=svg;node;node=node.parentElement){const style=getComputedStyle(node);opacity*=Number(style.opacity);if(style.visibility==='hidden'||style.display==='none')shown=false;}if(shown&&opacity>.01){visible++;peakOpacity=Math.max(peakOpacity,opacity);}} const mark=document.querySelector('.transition-mark .triangle');const match=mark?.style.transform.match(/rotate\\(([-\\d.]+)deg\\)/); window.logoSamples.push({visible,peakOpacity,angle:mark?Number(match?.[1]??0):null,viewportWidth:innerWidth,viewportHeight:innerHeight});requestAnimationFrame(sampleLogo);} requestAnimationFrame(sampleLogo)");
     private static async Task<string> ScriptAsync(string script) => await _window!.WebView!.ExecuteScriptAsync(script);
+    private static async Task ExpandAccountAsync(string id)
+    {
+        await ScriptAsync($"document.querySelector('.account-box[data-account-id=\"{id}\"] .account-summary[aria-expanded=\"false\"]')?.click()");
+        await Task.Delay(150);
+    }
     private static async Task AssertScriptAsync(string script, string message) => Check(await ScriptAsync(script) == "true", message);
     private static async Task CaptureAsync(string name)
     {

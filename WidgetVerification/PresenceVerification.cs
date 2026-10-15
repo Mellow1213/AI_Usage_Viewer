@@ -49,7 +49,9 @@ internal static partial class Program
             "Restoring a card restores its unpinned setting and normal activation style");
         await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
         await Task.Delay(400);
-        await AssertScriptAsync("document.querySelector('[aria-label=\"로고 항상 위에 표시\"]').getAttribute('aria-pressed')==='true' && document.querySelector('[aria-label=\"전체 화면에서 로고 숨기기\"]').getAttribute('aria-pressed')==='true'",
+        await ScriptAsync("document.querySelector('[aria-label=\"화면 설정\"]').click()");
+        await Task.Delay(200);
+        await AssertScriptAsync("document.querySelector('[aria-label=\"로고 항상 위에 표시\"]').getAttribute('aria-checked')==='true' && document.querySelector('[aria-label=\"전체 화면에서 로고 숨기기\"]').getAttribute('aria-checked')==='true'",
             "Card settings show independent logo and fullscreen preferences");
         await CaptureAsync("presence-settings.png");
         await AssertScriptAsync("document.querySelector('.menu').getBoundingClientRect().bottom < innerHeight", "Additional presence settings fit the native window");
