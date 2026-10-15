@@ -411,11 +411,14 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         try await web.widgetEvaluate("""
         (() => {
           const result = window.__viewRotation = { frames: 0, total: 0, minimumStep: 0, maximumStep: 0, finished: false };
-          let previous;
-          const started = performance.now();
+          let previous, started;
+          const armed = performance.now();
           const sample = now => {
             const logo = document.querySelector('.transition-mark .triangle');
             if (logo) {
+              // Native action delivery/layout can take longer after recreating WebKit.
+              // Measure a full transition, rather than spending its sample budget waiting for it.
+              if (started === undefined) { started = now; result.firstFrameDelayMs = now - armed; }
               const matrix = new DOMMatrixReadOnly(getComputedStyle(logo).transform);
               const angle = Math.atan2(matrix.b, matrix.a) * 180 / Math.PI;
               if (previous !== undefined) {
@@ -424,7 +427,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
               }
               previous = angle; result.frames++;
             }
-            if (now - started < 800) requestAnimationFrame(sample);
+            if (started === undefined ? now - armed < 5000 : now - started < 800) requestAnimationFrame(sample);
             else result.finished = true;
           };
           requestAnimationFrame(sample);
