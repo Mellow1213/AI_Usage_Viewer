@@ -9,8 +9,8 @@ import { nextDisplayDelay } from './displayClock.js';
 const native = window.aiUsageNative ?? window.chrome?.webview;
 const send = (action, extra = {}) => native?.postMessage({ action, ...extra });
 const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
-const subscribeMotion = callback => { motionPreference.addEventListener('change', callback); return () => motionPreference.removeEventListener('change', callback); };
-function useReducedMotion() { return useSyncExternalStore(subscribeMotion, () => motionPreference.matches); }
+const subscribeMotion = callback => { motionPreference.addEventListener('change', callback); window.addEventListener('usage-motion', callback); return () => { motionPreference.removeEventListener('change', callback); window.removeEventListener('usage-motion', callback); }; };
+function useReducedMotion() { return useSyncExternalStore(subscribeMotion, () => typeof native?.motionOverride === 'boolean' ? native.motionOverride : motionPreference.matches); }
 const initial = { busy: true, pinned: true, collapsed: false, viewMode: 0, bridgeInstalled: false, authBusy: false, accounts: [
   { id: 'codex', source: 'widget', status: 'disconnected' }, { id: 'claude', source: 'widget', status: 'disconnected' }
 ], providers: [] };
@@ -60,37 +60,33 @@ native?.addEventListener('message', event => {
 function Triangle({ active = false, connected = false, large = false, transitioning = false, rotation = 0, rotationStep = 120, onSpinComplete }) {
   const reduce = useReducedMotion();
   const boundedRefresh = Boolean(window.aiUsageNative);
-  const logo = useRef(null);
-  const refreshAnimation = useRef(null);
+  const refreshRotation = useMotionValue(rotation);
   const wasActive = useRef(false);
   useEffect(() => {
     // Offscreen WebViews can suspend frames while continuing to receive usage updates.
     // Discard the old turn on either visibility edge instead of replaying it on return.
-    const reset = () => { refreshAnimation.current?.cancel(); refreshAnimation.current = null; };
+    const reset = () => refreshRotation.jump(rotation);
     reset();
     document.addEventListener('visibilitychange', reset);
     window.addEventListener('usage-visibility', reset);
     return () => {
       document.removeEventListener('visibilitychange', reset);
       window.removeEventListener('usage-visibility', reset);
-      reset();
+      refreshRotation.stop();
     };
-  }, [rotation, reduce, transitioning]);
+  }, [refreshRotation, rotation, reduce, transitioning]);
   useEffect(() => {
-    if (boundedRefresh && active && !wasActive.current && !transitioning && !reduce && !document.hidden && native?.visible !== false && refreshAnimation.current?.playState !== 'running') {
+    if (boundedRefresh && active && !wasActive.current && !transitioning && !reduce && !document.hidden && native?.visible !== false && !refreshRotation.isAnimating()) {
       // One bounded turn: overlapping refreshes never add rotations to a backlog.
-      const playback = logo.current.animate([{ transform: `rotate(${rotation}deg)` }, { transform: `rotate(${rotation + 360}deg)` }],
-        { duration: 1600, easing: 'cubic-bezier(.42,0,.58,1)' });
-      refreshAnimation.current = playback;
-      playback.onfinish = () => { playback.cancel(); if (refreshAnimation.current === playback) refreshAnimation.current = null; };
+      animate(refreshRotation, rotation + 360, { duration: 1.6, ease: 'easeInOut', onComplete: () => refreshRotation.jump(rotation) });
     }
     wasActive.current = active;
-  }, [active, transitioning, reduce, rotation, boundedRefresh]);
+  }, [active, transitioning, reduce, refreshRotation, rotation, boundedRefresh]);
   const waving = connected && !transitioning && !reduce;
   const from = transitioning ? rotation - rotationStep : rotation;
   const spinning = transitioning || (active && !reduce);
-  return <motion.svg ref={logo} className={`triangle ${connected ? 'connected' : 'disconnected'} ${large ? 'large' : ''} ${waving ? 'waving' : ''} ${active && !reduce ? 'syncing' : ''}`} viewBox="0 0 40 40" fill="none" aria-label={transitioning ? '화면 전환 중' : active ? '갱신 중' : connected ? '모든 AI 연결됨' : 'AI 연결 확인 필요'}
-    style={{ transformOrigin: '50% 58.333333%', ...(boundedRefresh && !transitioning ? { rotate: rotation } : {}) }} initial={transitioning || !boundedRefresh ? { rotate: from } : false}
+  return <motion.svg className={`triangle ${connected ? 'connected' : 'disconnected'} ${large ? 'large' : ''} ${waving ? 'waving' : ''} ${active && !reduce ? 'syncing' : ''}`} viewBox="0 0 40 40" fill="none" aria-label={transitioning ? '화면 전환 중' : active ? '갱신 중' : connected ? '모든 AI 연결됨' : 'AI 연결 확인 필요'}
+    style={{ transformOrigin: '50% 58.333333%', ...(boundedRefresh && !transitioning ? { rotate: refreshRotation } : {}) }} initial={transitioning || !boundedRefresh ? { rotate: from } : false}
     animate={transitioning ? { rotate: [from, rotation] } : boundedRefresh ? undefined : { rotate: spinning ? [rotation, rotation + 120, rotation + 240, rotation + 360] : rotation }}
     onAnimationComplete={transitioning ? onSpinComplete : undefined}
     transition={boundedRefresh ? { duration: transitioning ? .48 : reduce ? 0 : 1.6, ease: 'easeInOut' } : spinning ? { duration: transitioning ? .48 : 1.6, repeat: transitioning ? 0 : Infinity, ease: 'easeInOut' } : { duration: .25 }}>

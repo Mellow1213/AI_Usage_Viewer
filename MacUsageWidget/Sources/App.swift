@@ -1,6 +1,19 @@
 import AppKit
 import WebKit
 
+@MainActor extension WKWebView {
+    // Older SDK async overlays force-unwrap undefined JavaScript results.
+    // The callback API preserves nil and also works for read-only object results.
+    @discardableResult func widgetEvaluate(_ script: String) async throws -> Any? {
+        try await withCheckedThrowingContinuation { continuation in
+            evaluateJavaScript(script) { result, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: result) }
+            }
+        }
+    }
+}
+
 final class LocalWebContent: NSObject, WKURLSchemeHandler {
     let root: URL
     init(root: URL) { self.root = root.resolvingSymlinksInPath() }
@@ -104,6 +117,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
           const listeners = new Set();
           window.aiUsageNative = {
             visible: false,
+            motionOverride: \(store.fixture && (smokeDirectory != nil || benchmarkDirectory != nil) ? "false" : "null"),
             initialState: \(String(decoding: state, as: UTF8.self)),
             uiState: \(String(decoding: session, as: UTF8.self)),
             postMessage: value => window.webkit.messageHandlers.native.postMessage(value),
@@ -175,7 +189,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                 // Brief reopenings stay instant; an idle card releases its web processes.
                 try await Task.sleep(nanoseconds: 5_000_000_000)
                 guard let self, !self.popover.isShown, self.ready, let page = self.web else { return }
-                guard let snapshot = try await page.evaluateJavaScript("window.aiUsageCaptureUI?.()") as? Object else { return }
+                guard let snapshot = try await page.widgetEvaluate("window.aiUsageCaptureUI?.()") as? Object else { return }
                 guard !Task.isCancelled, !self.popover.isShown, self.web === page else { return }
                 self.savedUI = snapshot
                 self.discardWebContent()
@@ -282,7 +296,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         let data = try JSONSerialization.data(withJSONObject: store.state(maxHeight: maxHeight))
         let state = String(decoding: data, as: UTF8.self)
         let sampleMilliseconds = max(2100, activeMilliseconds + 350)
-        try await web.evaluateJavaScript("""
+        try await web.widgetEvaluate("""
         (() => {
           const state = \(state), logo = document.querySelector('.triangle');
           const readAngle = () => {
@@ -315,7 +329,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         })();
         """)
         try await Task.sleep(nanoseconds: UInt64(sampleMilliseconds + 100) * 1_000_000)
-        var result = try await web.evaluateJavaScript("window.__refreshRotation") as? Object ?? [:]
+        var result = try await web.widgetEvaluate("window.__refreshRotation") as? Object ?? [:]
         result["busyMilliseconds"] = activeMilliseconds
         result["refreshes"] = burst ? 10 : 1
         result["passed"] = result["finished"] as? Bool == true && (result["frames"] as? Int ?? 0) > 20
@@ -332,27 +346,27 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         var interruptedAngle = 0.0
         if interrupt {
             let readAngle = "(() => { const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.triangle')).transform); return Math.atan2(m.b, m.a) * 180 / Math.PI; })()"
-            let initialAngle = try await web.evaluateJavaScript(readAngle) as? Double ?? 0
-            try await web.evaluateJavaScript("window.aiUsageReceive({ ...\(state), busy: true });")
+            let initialAngle = try await web.widgetEvaluate(readAngle) as? Double ?? 0
+            try await web.widgetEvaluate("window.aiUsageReceive({ ...\(state), busy: true });")
             try await Task.sleep(nanoseconds: 350_000_000)
-            let angle = try await web.evaluateJavaScript(readAngle) as? Double ?? 0
+            let angle = try await web.widgetEvaluate(readAngle) as? Double ?? 0
             interruptedAngle = abs((angle - initialAngle + 540).truncatingRemainder(dividingBy: 360) - 180)
         }
         popover.performClose(nil)
         try await Task.sleep(nanoseconds: 250_000_000)
-        try await web.evaluateJavaScript("window.__hiddenHostUpdates = 0; window.aiUsageNative.addEventListener('message', () => window.__hiddenHostUpdates++);")
+        try await web.widgetEvaluate("window.__hiddenHostUpdates = 0; window.aiUsageNative.addEventListener('message', () => window.__hiddenHostUpdates++);")
         for _ in 0..<3 { publish(force: true) }
-        let hidden = try await web.evaluateJavaScript("({visible: window.aiUsageNative.visible, hostUpdates: window.__hiddenHostUpdates})") as? Object ?? [:]
+        let hidden = try await web.widgetEvaluate("({visible: window.aiUsageNative.visible, hostUpdates: window.__hiddenHostUpdates})") as? Object ?? [:]
         // Accelerate several background polling cycles while WebKit cannot paint.
         for _ in 0..<(interrupt ? 1 : 12) {
             if !interrupt {
-                try await web.evaluateJavaScript("window.aiUsageReceive({ ...\(state), busy: true });")
+                try await web.widgetEvaluate("window.aiUsageReceive({ ...\(state), busy: true });")
                 try await Task.sleep(nanoseconds: 80_000_000)
             }
-            try await web.evaluateJavaScript("window.aiUsageReceive({ ...\(state), busy: false });")
+            try await web.widgetEvaluate("window.aiUsageReceive({ ...\(state), busy: false });")
             try await Task.sleep(nanoseconds: 80_000_000)
         }
-        try await web.evaluateJavaScript("""
+        try await web.widgetEvaluate("""
         (() => {
           const logo = document.querySelector('.triangle');
           const readAngle = () => {
@@ -375,7 +389,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         """)
         showPopover()
         try await Task.sleep(nanoseconds: 2_700_000_000)
-        var result = try await web.evaluateJavaScript("window.__hiddenRefreshRotation") as? Object ?? [:]
+        var result = try await web.widgetEvaluate("window.__hiddenRefreshRotation") as? Object ?? [:]
         result["backgroundRefreshes"] = interrupt ? 0 : 12
         result["interrupted"] = interrupt
         result["interruptedAngle"] = interruptedAngle
@@ -387,7 +401,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         return result
     }
     private func verifyViewRotation(action: String, clockwise: Bool) async throws -> Object {
-        try await web.evaluateJavaScript("""
+        try await web.widgetEvaluate("""
         (() => {
           const result = window.__viewRotation = { frames: 0, total: 0, minimumStep: 0, maximumStep: 0, finished: false };
           let previous;
@@ -411,7 +425,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         """)
         await store.action(["action": action])
         try await Task.sleep(nanoseconds: 1_000_000_000)
-        var result = try await web.evaluateJavaScript("window.__viewRotation") as? Object ?? [:]
+        var result = try await web.widgetEvaluate("window.__viewRotation") as? Object ?? [:]
         let total = result["total"] as? Double ?? 0
         result["clockwise"] = clockwise
         result["passed"] = result["finished"] as? Bool == true && (result["frames"] as? Int ?? 0) > 10
@@ -435,13 +449,13 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         warmPage = nil
         let initialIDs = Set(store.preferences.visible)
         for _ in 0..<12 { await store.action(["action": "addProvider", "provider": "codex"]) }
-        _ = try await web.evaluateJavaScript("document.querySelector('[aria-label=\"설정\"]').click()")
+        _ = try await web.widgetEvaluate("document.querySelector('[aria-label=\"설정\"]').click()")
         try await pause(0.1)
-        _ = try await web.evaluateJavaScript("[...document.querySelectorAll('.settings-link')].find(e => e.textContent.includes('계정 관리')).click()")
+        _ = try await web.widgetEvaluate("[...document.querySelectorAll('.settings-link')].find(e => e.textContent.includes('계정 관리')).click()")
         try await pause(0.1)
-        _ = try await web.evaluateJavaScript("document.querySelector('.account-summary').click()")
+        _ = try await web.widgetEvaluate("document.querySelector('.account-summary').click()")
         try await pause(0.1)
-        _ = try await web.evaluateJavaScript("""
+        _ = try await web.widgetEvaluate("""
         (() => {
           const input = document.getElementById('nickname-codex');
           Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '저장 전 별명');
@@ -450,14 +464,14 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         })();
         """)
         try await pause(0.1)
-        _ = try await web.evaluateJavaScript("document.querySelector('.settings-content').scrollTop = 80")
-        let before = try await web.evaluateJavaScript("window.aiUsageCaptureUI()") as? Object ?? [:]
+        _ = try await web.widgetEvaluate("document.querySelector('.settings-content').scrollTop = 80")
+        let before = try await web.widgetEvaluate("window.aiUsageCaptureUI()") as? Object ?? [:]
         weak var previousPage = web
         popover.performClose(nil); try await pause(6)
         let released = web == nil && previousPage == nil
         previousPage = nil
         try await reopen()
-        let restored = try await web.evaluateJavaScript("window.aiUsageCaptureUI()") as? Object ?? [:]
+        let restored = try await web.widgetEvaluate("window.aiUsageCaptureUI()") as? Object ?? [:]
         let draft = (restored["form"] as? Object)?["nickname-codex"] as? Object
         let restoredSettings = restored["menu"] as? Bool == true && restored["menuPage"] as? String == "accounts"
             && restored["expandedAccountId"] as? String == "codex" && draft?["value"] as? String == "저장 전 별명"
@@ -467,20 +481,20 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         let selection = restored["focus"] as? Object
         let focusRestored = selection?["id"] as? String == "nickname-codex" && selection?["start"] as? Int == 2 && selection?["end"] as? Int == 4
         let noImplicitSave = store.preferences.profiles.first { $0.id == "codex" }?.nickname == nil
-        let noReplay = try await web.evaluateJavaScript("!document.querySelector('.is-logo-moving')") as? Bool == true
-        _ = try await web.evaluateJavaScript("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
+        let noReplay = try await web.widgetEvaluate("!document.querySelector('.is-logo-moving')") as? Bool == true
+        _ = try await web.widgetEvaluate("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
         try await pause(0.1)
-        let compactRestored = try await web.evaluateJavaScript("document.querySelector('.compact') !== null") as? Bool == true
+        let compactRestored = try await web.widgetEvaluate("document.querySelector('.compact') !== null") as? Bool == true
         for id in store.preferences.visible where !initialIDs.contains(id) { await store.action(["action": "removeProvider", "provider": id]) }
-        _ = try await web.evaluateJavaScript("document.querySelector('[aria-label=\"설정\"]').click()")
+        _ = try await web.widgetEvaluate("document.querySelector('[aria-label=\"설정\"]').click()")
         try await pause(0.1)
-        _ = try await web.evaluateJavaScript("[...document.querySelectorAll('.settings-link')].find(e => e.textContent.includes('사용량 측정')).click()")
+        _ = try await web.widgetEvaluate("[...document.querySelectorAll('.settings-link')].find(e => e.textContent.includes('사용량 측정')).click()")
         await store.action(["action": "setMeasurementInterval", "minutes": 17])
         try await pause(0.1)
         popover.performClose(nil); try await pause(6); try await reopen()
-        let measurementRestored = try await web.evaluateJavaScript("document.getElementById('settings-title')?.textContent === '사용량 측정' && document.getElementById('measurement-interval')?.value === '17'") as? Bool == true
+        let measurementRestored = try await web.widgetEvaluate("document.getElementById('settings-title')?.textContent === '사용량 측정' && document.getElementById('measurement-interval')?.value === '17'") as? Bool == true
         await store.action(["action": "setMeasurementInterval", "minutes": 30])
-        _ = try await web.evaluateJavaScript("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
+        _ = try await web.widgetEvaluate("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
         let refresh = try await verifyRefreshRotation(activeMilliseconds: 100)
         let direction = try await verifyViewRotation(action: "showFull", clockwise: false)
         let passed = quickReopen && released && restoredSettings && noImplicitSave && noReplay && compactRestored
@@ -518,11 +532,11 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                     showPopover()
                     for _ in 0..<100 {
                         if ready, let page = web,
-                           try await page.evaluateJavaScript("document.querySelector('.compact') !== null") as? Bool == true { break }
+                           try await page.widgetEvaluate("document.querySelector('.compact') !== null") as? Bool == true { break }
                         try await pause(0.05)
                     }
                     guard ready, let page = web,
-                          try await page.evaluateJavaScript("document.querySelector('.compact') !== null") as? Bool == true else {
+                          try await page.widgetEvaluate("document.querySelector('.compact') !== null") as? Bool == true else {
                         throw WidgetError.message("The card did not recover after idle release.")
                     }
                     reopenTimes.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
@@ -547,11 +561,18 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                 checkpoint("show")
                 showPopover()
                 try await Task.sleep(nanoseconds: 1_000_000_000)
-                let first = try await web.evaluateJavaScript("({text: document.body.innerText, cards: document.querySelectorAll('.provider').length, platform: !!window.aiUsageNative})") as? Object ?? [:]
+                let first = try await web.widgetEvaluate("({text: document.body.innerText, cards: document.querySelectorAll('.provider').length, platform: !!window.aiUsageNative})") as? Object ?? [:]
                 let fastRefresh = try await verifyRefreshRotation(activeMilliseconds: 100)
                 checkpoint("fast-refresh-complete")
+                try await web.widgetEvaluate("window.aiUsageNative.motionOverride = true; window.dispatchEvent(new Event('usage-motion'));")
+                try await Task.sleep(nanoseconds: 200_000_000)
+                let reducedRefresh = try await verifyRefreshRotation(activeMilliseconds: 100)
+                let reducedMotionHonored = abs(reducedRefresh["total"] as? Double ?? .infinity) < 1 && reducedRefresh["sawBusy"] as? Bool == true
+                    && reducedRefresh["sawSyncing"] as? Bool == false
+                try await web.widgetEvaluate("window.aiUsageNative.motionOverride = false; window.dispatchEvent(new Event('usage-motion'));")
+                try await Task.sleep(nanoseconds: 200_000_000)
                 let compactRotation = try await verifyViewRotation(action: "toggleDetails", clockwise: true)
-                let compact = try await web.evaluateJavaScript("document.querySelector('.compact') !== null && !!document.querySelector('.header .refresh') && !document.querySelector('footer')") as? Bool ?? false
+                let compact = try await web.widgetEvaluate("document.querySelector('.compact') !== null && !!document.querySelector('.header .refresh') && !document.querySelector('footer')") as? Bool ?? false
                 let slowRefresh = try await verifyRefreshRotation(activeMilliseconds: 2400)
                 checkpoint("slow-refresh-complete")
                 let hiddenRefresh = try await verifyHiddenRefreshRotation()
@@ -559,7 +580,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                 let reopenedRefresh = try await verifyRefreshRotation(activeMilliseconds: 100, burst: true)
                 let expandedRotation = try await verifyViewRotation(action: "showFull", clockwise: false)
                 checkpoint("rotations-complete")
-                let layout = try await web.evaluateJavaScript("({viewport: innerHeight, card: document.querySelector('.widget').getBoundingClientRect().bottom, refreshInHeader: !!document.querySelector('.header .refresh'), footerRemoved: !document.querySelector('footer')})") as? Object ?? [:]
+                let layout = try await web.widgetEvaluate("({viewport: innerHeight, card: document.querySelector('.widget').getBoundingClientRect().bottom, refreshInHeader: !!document.querySelector('.header .refresh'), footerRemoved: !document.querySelector('footer')})") as? Object ?? [:]
                 let snapshot = try await web.takeSnapshot(configuration: nil)
                 checkpoint("snapshot-complete")
                 if let data = snapshot.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data), let png = bitmap.representation(using: .png, properties: [:]), let folder = smokeDirectory {
@@ -568,7 +589,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                 let cardFits = (layout["card"] as? Double ?? .infinity) <= (layout["viewport"] as? Double ?? 0) + 2
                 let memory = CommandLine.arguments.contains("--verify-memory") ? try await verifyIdleWebRelease() : ["passed": true, "skipped": true]
                 checkpoint("memory-complete")
-                let passed = memory["passed"] as? Bool == true && first["platform"] as? Bool == true && (first["cards"] as? Int ?? 0) == 2 && compact && cardFits
+                let passed = reducedMotionHonored && memory["passed"] as? Bool == true && first["platform"] as? Bool == true && (first["cards"] as? Int ?? 0) == 2 && compact && cardFits
                     && layout["refreshInHeader"] as? Bool == true && layout["footerRemoved"] as? Bool == true
                     && fastRefresh["passed"] as? Bool == true && slowRefresh["passed"] as? Bool == true
                     && hiddenRefresh["passed"] as? Bool == true
@@ -576,7 +597,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                     && compactRotation["passed"] as? Bool == true && expandedRotation["passed"] as? Bool == true
                 finishSmoke(["passed": passed, "readyHandshake": ready, "statusItem": item.button != nil,
                              "renderedCards": first["cards"] ?? 0, "compactMode": compact, "cardFits": cardFits, "layout": layout, "memory": memory,
-                             "fastRefresh": fastRefresh, "slowRefresh": slowRefresh, "hiddenRefresh": hiddenRefresh,
+                             "fastRefresh": fastRefresh, "reducedMotionHonored": reducedMotionHonored, "slowRefresh": slowRefresh, "hiddenRefresh": hiddenRefresh,
                              "compactRotation": compactRotation, "expandedRotation": expandedRotation,
                              "interruptedRefresh": interruptedRefresh, "reopenedRefresh": reopenedRefresh, "text": first["text"] ?? ""])
             } catch { finishSmoke(["passed": false, "error": String(describing: error)]) }
