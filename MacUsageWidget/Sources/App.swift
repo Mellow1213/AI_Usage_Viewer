@@ -27,6 +27,9 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
     private var ready = false
     private var contentVisible = false
     private var lastPayload = ""
+    private var releaseTask: Task<Void, Never>?
+    private var savedUI: Object = [:]
+    private var savedSize = NSSize(width: 304, height: 400)
     private var wakeObserver: NSObjectProtocol?
     private var iconTimer: Timer?
     private var iconPhase = 0.0
@@ -35,6 +38,8 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
     private var iconBusy = false
     private var lockDescriptor: Int32 = -1
     private var smokeDirectory: URL?
+    private var benchmarkDirectory: URL?
+    private var benchmarkStarted = false
     private var smokeStarted = false
     private var maxHeight: Double { Double(max(260, min(880, (item?.button?.window?.screen ?? NSScreen.main)?.visibleFrame.height ?? 800) - 50)) }
 
@@ -47,6 +52,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             let root = argument("--data-dir").map { URL(fileURLWithPath: $0) } ??
                 FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AIUsageWidget")
             if let smoke = argument("--smoke-test") { smokeDirectory = URL(fileURLWithPath: smoke) }
+            if args.contains("--fixture"), let directory = argument("--memory-benchmark") { benchmarkDirectory = URL(fileURLWithPath: directory) }
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             lockDescriptor = open(root.appendingPathComponent("mac-app.lock").path, O_CREAT | O_RDWR, 0o600)
             guard lockDescriptor >= 0, flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0 else {
@@ -60,54 +66,22 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                 button.toolTip = "AI Usage · 클릭해서 사용량 보기 · 우클릭 메뉴"
                 button.setAccessibilityLabel("AI Usage 메뉴 막대")
             }
-            let configuration = WKWebViewConfiguration()
-            configuration.websiteDataStore = .nonPersistent()
-            configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
-            configuration.setURLSchemeHandler(LocalWebContent(root: Bundle.main.resourceURL!.appendingPathComponent("Web")), forURLScheme: "aiusage")
-            configuration.userContentController.add(self, name: "native")
-            let bridge = """
-            (() => {
-              const listeners = new Set();
-              window.aiUsageNative = {
-                visible: false,
-                postMessage: value => window.webkit.messageHandlers.native.postMessage(value),
-                addEventListener: (name, callback) => { if (name === 'message') listeners.add(callback); }
-              };
-              window.aiUsageReceive = value => { for (const callback of listeners) callback({ data: value }); };
-              window.aiUsageSetVisible = visible => {
-                if (window.aiUsageNative.visible === visible) return;
-                window.aiUsageNative.visible = visible;
-                window.dispatchEvent(new Event('usage-visibility'));
-              };
-              document.addEventListener('keydown', event => {
-                if (event.key === 'Escape' && !['INPUT', 'TEXTAREA'].includes(event.target.tagName)) {
-                  event.preventDefault(); window.aiUsageNative.postMessage({ action: 'toggleLogo' });
-                } else if (event.key === 'F5' || (event.metaKey && event.key.toLowerCase() === 'r')) {
-                  event.preventDefault(); window.aiUsageNative.postMessage({ action: 'refresh' });
-                }
-              });
-            })();
-            """
-            configuration.userContentController.addUserScript(WKUserScript(source: bridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-            web = WKWebView(frame: NSRect(x: 0, y: 0, width: 304, height: 400), configuration: configuration)
-            web.navigationDelegate = self; web.uiDelegate = self
-            web.underPageBackgroundColor = NSColor(calibratedRed: 17/255, green: 19/255, blue: 22/255, alpha: 1)
-            let controller = NSViewController(); controller.view = web
-            popover.contentViewController = controller; popover.contentSize = NSSize(width: 304, height: 400)
-            popover.behavior = smokeDirectory == nil ? .transient : .applicationDefined
+            popover.behavior = smokeDirectory == nil && benchmarkDirectory == nil ? .transient : .applicationDefined
             popover.animates = store.preferences.animateTransitions; popover.delegate = self
             store.changed = { [weak self] in self?.publish() }
             store.hide = { [weak self] in self?.popover.performClose(nil) }
-            web.load(URLRequest(url: URL(string: "aiusage://widget/index.html")!))
-            drawIcon()
+            // Polling and menu-bar updates must not depend on a loaded web page.
+            store.start()
+            publish()
             wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in await self?.store.refresh() }
             }
-            if smokeDirectory != nil {
+            if benchmarkDirectory != nil { runMemoryBenchmark() }
+            else if smokeDirectory != nil {
                 showPopover()
                 Task { [weak self] in
                     try? await Task.sleep(nanoseconds: 25_000_000_000)
-                    guard let self, !self.smokeStarted else { return }
+                    guard let self, !self.smokeStarted, !self.benchmarkStarted else { return }
                     self.finishSmoke(["passed": false, "error": "WebKit did not complete the ready handshake."])
                 }
             } else if store.preferences.visible.isEmpty { showPopover() }
@@ -116,9 +90,51 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             alert.informativeText = "앱 파일과 저장 폴더의 권한을 확인해주세요."; alert.runModal(); NSApp.terminate(nil)
         }
     }
+    private func ensureWebContent() {
+        guard web == nil else { return }
+        let state = (try? JSONSerialization.data(withJSONObject: store.state(maxHeight: maxHeight))) ?? Data("{}".utf8)
+        let session = (try? JSONSerialization.data(withJSONObject: savedUI)) ?? Data("{}".utf8)
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        configuration.setURLSchemeHandler(LocalWebContent(root: Bundle.main.resourceURL!.appendingPathComponent("Web")), forURLScheme: "aiusage")
+        configuration.userContentController.add(self, name: "native")
+        let bridge = """
+        (() => {
+          const listeners = new Set();
+          window.aiUsageNative = {
+            visible: false,
+            initialState: \(String(decoding: state, as: UTF8.self)),
+            uiState: \(String(decoding: session, as: UTF8.self)),
+            postMessage: value => window.webkit.messageHandlers.native.postMessage(value),
+            addEventListener: (name, callback) => { if (name === 'message') listeners.add(callback); }
+          };
+          window.aiUsageReceive = value => { for (const callback of listeners) callback({ data: value }); };
+          window.aiUsageSetVisible = visible => {
+            if (window.aiUsageNative.visible === visible) return;
+            window.aiUsageNative.visible = visible;
+            window.dispatchEvent(new Event('usage-visibility'));
+          };
+          document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && !['INPUT', 'TEXTAREA'].includes(event.target.tagName)) {
+              event.preventDefault(); window.aiUsageNative.postMessage({ action: 'toggleLogo' });
+            } else if (event.key === 'F5' || (event.metaKey && event.key.toLowerCase() === 'r')) {
+              event.preventDefault(); window.aiUsageNative.postMessage({ action: 'refresh' });
+            }
+          });
+        })();
+        """
+        configuration.userContentController.addUserScript(WKUserScript(source: bridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        web = WKWebView(frame: NSRect(origin: .zero, size: savedSize), configuration: configuration)
+        web.navigationDelegate = self; web.uiDelegate = self
+        web.underPageBackgroundColor = NSColor(calibratedRed: 17/255, green: 19/255, blue: 22/255, alpha: 1)
+        let controller = NSViewController(); controller.view = web
+        popover.contentViewController = controller; popover.contentSize = savedSize
+        web.load(URLRequest(url: URL(string: "aiusage://widget/index.html")!))
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showPopover(); return true }
     func applicationWillTerminate(_ notification: Notification) {
-        store?.stop(); iconTimer?.invalidate()
+        releaseTask?.cancel(); store?.stop(); iconTimer?.invalidate()
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         web?.configuration.userContentController.removeScriptMessageHandler(forName: "native")
         if lockDescriptor >= 0 { flock(lockDescriptor, LOCK_UN); close(lockDescriptor) }
@@ -137,6 +153,8 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
     @objc private func quit() { NSApp.terminate(nil) }
     private func showPopover() {
         guard let button = item?.button else { return }
+        releaseTask?.cancel(); releaseTask = nil
+        ensureWebContent()
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         contentVisible = popover.isShown
@@ -150,16 +168,39 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         guard ready else { return }
         web.evaluateJavaScript("window.aiUsageSetVisible(false);", completionHandler: nil)
     }
+    func popoverDidClose(_ notification: Notification) {
+        releaseTask?.cancel()
+        releaseTask = Task { [weak self] in
+            do {
+                // Brief reopenings stay instant; an idle card releases its web processes.
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self, !self.popover.isShown, self.ready, let page = self.web else { return }
+                guard let snapshot = try await page.evaluateJavaScript("window.aiUsageCaptureUI?.()") as? Object else { return }
+                guard !Task.isCancelled, !self.popover.isShown, self.web === page else { return }
+                self.savedUI = snapshot
+                self.discardWebContent()
+            } catch { /* Keep the live page if its editing state could not be captured. */ }
+        }
+    }
+    private func discardWebContent() {
+        guard let page = web else { return }
+        ready = false; lastPayload = ""
+        page.stopLoading()
+        page.configuration.userContentController.removeScriptMessageHandler(forName: "native")
+        page.navigationDelegate = nil; page.uiDelegate = nil
+        popover.contentViewController = nil
+        page.removeFromSuperview(); web = nil
+    }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "native", message.frameInfo.isMainFrame,
+        guard message.webView === web, message.name == "native", message.frameInfo.isMainFrame,
               message.frameInfo.securityOrigin.protocol == "aiusage", message.frameInfo.securityOrigin.host == "widget",
               let body = message.body as? Object, let action = body["action"] as? String else { return }
-        if action == "ready" { ready = true; publish(force: true); store.start(); runSmoke(); return }
+        if action == "ready" { ready = true; publish(force: true); store.start(); runSmoke(); runMemoryBenchmark(); return }
         if action == "height" {
             guard let height = body["height"] as? Double, height.isFinite,
                   body["viewMode"] as? Int == store.preferences.viewMode, body["viewRevision"] as? Int == store.viewRevision else { return }
             let size = NSSize(width: 304, height: min(maxHeight, max(140, height + 2)))
-            if abs(popover.contentSize.height - size.height) > 0.5 { popover.contentSize = size }
+            if abs(popover.contentSize.height - size.height) > 0.5 { savedSize = size; popover.contentSize = size }
             return
         }
         Task { await store.action(body) }
@@ -170,7 +211,11 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
     }
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? { nil }
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType, decisionHandler: @escaping (WKPermissionDecision) -> Void) { decisionHandler(.deny) }
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { ready = false; lastPayload = ""; webView.reload() }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard webView === web else { return }
+        ready = false; lastPayload = ""
+        if popover.isShown { webView.reload() } else { discardWebContent() }
+    }
     private func publish(force: Bool = false) {
         guard let store else { return }
         let state = store.state(maxHeight: maxHeight)
@@ -370,6 +415,124 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             && (clockwise ? (result["minimumStep"] as? Double ?? -.infinity) >= -0.1 : (result["maximumStep"] as? Double ?? .infinity) <= 0.1)
         return result
     }
+    private func verifyIdleWebRelease() async throws -> Object {
+        func pause(_ seconds: Double) async throws { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+        @MainActor func reopen() async throws {
+            showPopover()
+            for _ in 0..<100 { if ready { break }; try await pause(0.05) }
+            guard ready else { throw WidgetError.message("Released WebKit did not become ready again.") }
+            try await pause(0.4)
+        }
+        await store.action(["action": "toggleDetails"])
+        try await pause(0.7)
+        weak var warmPage = web
+        popover.performClose(nil); try await pause(0.2); try await reopen()
+        let quickReopen = web === warmPage
+        warmPage = nil
+        let initialIDs = Set(store.preferences.visible)
+        for _ in 0..<12 { await store.action(["action": "addProvider", "provider": "codex"]) }
+        _ = try await web.evaluateJavaScript("document.querySelector('[aria-label=\"설정\"]').click()")
+        try await pause(0.1)
+        _ = try await web.evaluateJavaScript("[...document.querySelectorAll('.settings-link')].find(e => e.textContent.includes('계정 관리')).click()")
+        try await pause(0.1)
+        _ = try await web.evaluateJavaScript("document.querySelector('.account-summary').click()")
+        try await pause(0.1)
+        _ = try await web.evaluateJavaScript("""
+        (() => {
+          const input = document.getElementById('nickname-codex');
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '저장 전 별명');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.focus(); input.setSelectionRange(2, 4);
+        })();
+        """)
+        try await pause(0.1)
+        _ = try await web.evaluateJavaScript("document.querySelector('.settings-content').scrollTop = 80")
+        let before = try await web.evaluateJavaScript("window.aiUsageCaptureUI()") as? Object ?? [:]
+        weak var previousPage = web
+        popover.performClose(nil); try await pause(6)
+        let released = web == nil && previousPage == nil
+        previousPage = nil
+        try await reopen()
+        let restored = try await web.evaluateJavaScript("window.aiUsageCaptureUI()") as? Object ?? [:]
+        let draft = (restored["form"] as? Object)?["nickname-codex"] as? Object
+        let restoredSettings = restored["menu"] as? Bool == true && restored["menuPage"] as? String == "accounts"
+            && restored["expandedAccountId"] as? String == "codex" && draft?["value"] as? String == "저장 전 별명"
+        let beforeScroll = (before["scroll"] as? [Object])?.first?["top"] as? Double ?? 0
+        let afterScroll = (restored["scroll"] as? [Object])?.first?["top"] as? Double ?? -1
+        let scrollRestored = beforeScroll > 0 && abs(beforeScroll - afterScroll) < 1
+        let selection = restored["focus"] as? Object
+        let focusRestored = selection?["id"] as? String == "nickname-codex" && selection?["start"] as? Int == 2 && selection?["end"] as? Int == 4
+        let noImplicitSave = store.preferences.profiles.first { $0.id == "codex" }?.nickname == nil
+        let noReplay = try await web.evaluateJavaScript("!document.querySelector('.is-logo-moving')") as? Bool == true
+        _ = try await web.evaluateJavaScript("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
+        try await pause(0.1)
+        let compactRestored = try await web.evaluateJavaScript("document.querySelector('.compact') !== null") as? Bool == true
+        for id in store.preferences.visible where !initialIDs.contains(id) { await store.action(["action": "removeProvider", "provider": id]) }
+        _ = try await web.evaluateJavaScript("document.querySelector('[aria-label=\"설정\"]').click()")
+        try await pause(0.1)
+        _ = try await web.evaluateJavaScript("[...document.querySelectorAll('.settings-link')].find(e => e.textContent.includes('사용량 측정')).click()")
+        await store.action(["action": "setMeasurementInterval", "minutes": 17])
+        try await pause(0.1)
+        popover.performClose(nil); try await pause(6); try await reopen()
+        let measurementRestored = try await web.evaluateJavaScript("document.getElementById('settings-title')?.textContent === '사용량 측정' && document.getElementById('measurement-interval')?.value === '17'") as? Bool == true
+        await store.action(["action": "setMeasurementInterval", "minutes": 30])
+        _ = try await web.evaluateJavaScript("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
+        let refresh = try await verifyRefreshRotation(activeMilliseconds: 100)
+        let direction = try await verifyViewRotation(action: "showFull", clockwise: false)
+        let passed = quickReopen && released && restoredSettings && noImplicitSave && noReplay && compactRestored
+            && scrollRestored && focusRestored && measurementRestored
+            && refresh["passed"] as? Bool == true && direction["passed"] as? Bool == true
+        return ["passed": passed, "quickReopenReusesPage": quickReopen, "releasedPage": released,
+            "restoredSettingsAndDraft": restoredSettings, "noImplicitSave": noImplicitSave,
+            "compactModeRestored": compactRestored, "noReplayedTransition": noReplay,
+            "scrollRestored": scrollRestored, "focusAndSelectionRestored": focusRestored, "measurementRestored": measurementRestored,
+            "before": before, "restored": restored, "refreshAfterRelease": refresh, "directionAfterRelease": direction]
+    }
+    private func runMemoryBenchmark() {
+        guard let folder = benchmarkDirectory, !benchmarkStarted else { return }; benchmarkStarted = true
+        Task {
+            do {
+                func pause(_ seconds: Double) async throws { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+                @MainActor func phase(_ name: String) async throws {
+                    try JSON.writeObject(["phase": name, "pid": ProcessInfo.processInfo.processIdentifier,
+                        "webLoaded": web != nil, "visible": popover.isShown], to: folder.appendingPathComponent("phase.json"))
+                    try await pause(7)
+                    try? FileManager.default.removeItem(at: folder.appendingPathComponent("phase.json"))
+                }
+                try await pause(3); try await phase("cold-hidden")
+                showPopover()
+                for _ in 0..<100 { if ready { break }; try await pause(0.05) }
+                guard ready else { throw WidgetError.message("The initial card did not become ready.") }
+                try await pause(3); try await phase("expanded")
+                await store.action(["action": "toggleDetails"])
+                try await pause(2); try await phase("compact")
+                popover.performClose(nil)
+                try await pause(8); try await phase("hidden")
+                var reopenTimes = [Double]()
+                for cycle in 1...4 {
+                    let start = ProcessInfo.processInfo.systemUptime
+                    showPopover()
+                    for _ in 0..<100 {
+                        if ready, let page = web,
+                           try await page.evaluateJavaScript("document.querySelector('.compact') !== null") as? Bool == true { break }
+                        try await pause(0.05)
+                    }
+                    guard ready, let page = web,
+                          try await page.evaluateJavaScript("document.querySelector('.compact') !== null") as? Bool == true else {
+                        throw WidgetError.message("The card did not recover after idle release.")
+                    }
+                    reopenTimes.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+                    try await pause(2)
+                    if cycle == 1 { try await phase("reopened") }
+                    popover.performClose(nil); try await pause(8)
+                }
+                try await phase("hidden-after-cycles")
+                try JSON.writeObject(["passed": true, "reopenMilliseconds": reopenTimes,
+                    "webLoadedWhileHidden": web != nil], to: folder.appendingPathComponent("memory-benchmark.json"))
+            } catch { try? JSON.writeObject(["passed": false, "error": String(describing: error)], to: folder.appendingPathComponent("memory-benchmark.json")) }
+            NSApp.terminate(nil)
+        }
+    }
     private func runSmoke() {
         guard smokeDirectory != nil, !smokeStarted else { return }; smokeStarted = true
         Task {
@@ -391,14 +554,15 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                     try JSON.writeData(png, to: folder.appendingPathComponent("menu-bar.png"))
                 }
                 let cardFits = (layout["card"] as? Double ?? .infinity) <= (layout["viewport"] as? Double ?? 0) + 2
-                let passed = first["platform"] as? Bool == true && (first["cards"] as? Int ?? 0) == 2 && compact && cardFits
+                let memory = CommandLine.arguments.contains("--verify-memory") ? try await verifyIdleWebRelease() : ["passed": true, "skipped": true]
+                let passed = memory["passed"] as? Bool == true && first["platform"] as? Bool == true && (first["cards"] as? Int ?? 0) == 2 && compact && cardFits
                     && layout["refreshInHeader"] as? Bool == true && layout["footerRemoved"] as? Bool == true
                     && fastRefresh["passed"] as? Bool == true && slowRefresh["passed"] as? Bool == true
                     && hiddenRefresh["passed"] as? Bool == true
                     && interruptedRefresh["passed"] as? Bool == true && reopenedRefresh["passed"] as? Bool == true
                     && compactRotation["passed"] as? Bool == true && expandedRotation["passed"] as? Bool == true
                 finishSmoke(["passed": passed, "readyHandshake": ready, "statusItem": item.button != nil,
-                             "renderedCards": first["cards"] ?? 0, "compactMode": compact, "cardFits": cardFits, "layout": layout,
+                             "renderedCards": first["cards"] ?? 0, "compactMode": compact, "cardFits": cardFits, "layout": layout, "memory": memory,
                              "fastRefresh": fastRefresh, "slowRefresh": slowRefresh, "hiddenRefresh": hiddenRefresh,
                              "compactRotation": compactRotation, "expandedRotation": expandedRotation,
                              "interruptedRefresh": interruptedRefresh, "reopenedRefresh": reopenedRefresh, "text": first["text"] ?? ""])

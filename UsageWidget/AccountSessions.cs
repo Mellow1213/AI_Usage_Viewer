@@ -10,6 +10,7 @@ internal interface IAccountSession : IDisposable
     AccountConnection Account { get; set; }
     ProviderUsage Usage { get; set; }
     void RestartClient();
+    void ReleaseIdleResources();
     void PrepareSourceChange();
     Task<AccountConnection> ReadAccountAsync(CancellationToken token);
     Task<ProviderUsage> ReadUsageAsync(bool force, bool skipQueries, CancellationToken token);
@@ -36,6 +37,7 @@ internal sealed class CodexSession : IAccountSession
     private CodexClient CreateClient() => _factory?.Invoke(new(Profile.Id, Profile.Name, Profile.Enabled, Profile.UseSystem))
         ?? new(Profile.UseSystem ? null : AccountProfiles.CodexHome(_directory, Profile.Id));
     public void RestartClient() { _client.Dispose(); _client = CreateClient(); }
+    public void ReleaseIdleResources() => _client.ReleaseIdleResources();
     public void PrepareSourceChange() { }
     public Task<AccountConnection> ReadAccountAsync(CancellationToken token) => _client.ReadAccountAsync(token);
     public Task<ProviderUsage> ReadUsageAsync(bool force, bool skipQueries, CancellationToken token) => _client.ReadAsync(token);
@@ -78,6 +80,7 @@ internal sealed class ClaudeSession : IAccountSession
             : new(Path.Combine(home, "UsageBridge"), Path.Combine(home, "settings.json"));
     }
     public void RestartClient() { Client.Dispose(); Client = CreateClient(); Bridge = CreateBridge(); _lastAttempt = default; }
+    public void ReleaseIdleResources() { }
     public void PrepareSourceChange()
     {
         if (Bridge.Installed) Bridge.Uninstall();

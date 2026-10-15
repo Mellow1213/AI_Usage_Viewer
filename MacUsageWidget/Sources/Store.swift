@@ -99,6 +99,7 @@ import AppKit
     private func refresh(_ profile: Profile, force: Bool) async {
         do {
             let reader = client(profile)
+            defer { reader.releaseIdleResources() }
             let account = try await reader.account()
             try Task.checkCancellation()
             let oldEmail = accounts[profile.id]?.email
@@ -242,6 +243,7 @@ import AppKit
         loginTask = Task { [weak self] in
             guard let self else { return }
             let reader = client(profile)
+            defer { reader.releaseIdleResources() }
             do {
                 try await reader.login { NSWorkspace.shared.open($0) }
                 try Task.checkCancellation()

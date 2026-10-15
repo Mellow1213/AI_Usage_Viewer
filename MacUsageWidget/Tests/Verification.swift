@@ -10,11 +10,22 @@ import AppKit
             var profile = Profile.primary("codex"); profile.useSystem = true
             let reader = AccountClient(profile: profile, root: root)
             defer { reader.stop() }
-            let account = try await reader.account()
-            guard account.status == "connected" else { throw WidgetError.message("No existing ChatGPT CLI login is available.") }
-            let usage = try await reader.usage()
-            guard usage.status == "ready", !usage.windows.isEmpty else { throw WidgetError.message("Live CLI returned no quota windows.") }
-            print("Live Codex account and rate-limit query passed (\(usage.windows.count) quota windows). No model turn was created.")
+            var durations = [Double](), processIDs = [Int32]()
+            for _ in 0..<3 {
+                let started = ProcessInfo.processInfo.systemUptime
+                let account = try await reader.account()
+                guard account.status == "connected" else { throw WidgetError.message("No existing ChatGPT CLI login is available.") }
+                let usage = try await reader.usage()
+                guard usage.status == "ready", !usage.windows.isEmpty else { throw WidgetError.message("Live CLI returned no quota windows.") }
+                if let pid = reader.readerProcessIdentifier { processIDs.append(pid) }
+                reader.releaseIdleResources()
+                guard reader.readerProcessIdentifier == nil else { throw WidgetError.message("Live reader was not released.") }
+                durations.append((ProcessInfo.processInfo.systemUptime - started) * 1000)
+            }
+            guard Set(processIDs).count == 3 else { throw WidgetError.message("Expected a fresh reader for each live polling batch.") }
+            try JSON.writeObject(["passed": true, "batches": durations.count, "milliseconds": durations, "distinctReaders": Set(processIDs).count],
+                                 to: root.appendingPathComponent("results.json"))
+            print("Three live Codex refresh/reconnect batches passed. No model turn was created.")
             return
         }
         if CommandLine.arguments.contains("app-server") { codexFixture(); return }
@@ -94,6 +105,28 @@ import AppKit
         let client = AccountClient(profile: .primary("codex"), root: root)
         let account = try await client.account(), limits = try await client.usage()
         try check(account.status == "connected" && limits.windows.first?.remainingPercent == 77, "Codex subprocess initialize/account/rateLimits round trip")
+        let firstPID = client.readerProcessIdentifier
+        client.releaseIdleResources()
+        try check(firstPID != nil && client.readerProcessIdentifier == nil, "Completed polling releases the owned Codex reader")
+        if let firstPID {
+            for _ in 0..<60 { if kill(firstPID, 0) != 0 { break }; try await Task.sleep(nanoseconds: 50_000_000) }
+            try check(kill(firstPID, 0) != 0, "The released reader actually exits the operating system")
+        }
+        let reread = try await client.account(), rereadUsage = try await client.usage()
+        try check(reread.status == "connected" && rereadUsage.windows.first?.remainingPercent == 77
+                  && client.readerProcessIdentifier != firstPID, "The next refresh starts a new reader and preserves account and quota results")
+        client.releaseIdleResources()
+        setenv("AI_USAGE_FIXTURE_LOGIN_DELAY", "1", 1)
+        let slowLogin = AccountClient(profile: .primary("codex"), root: root)
+        let loginTask = Task { try await slowLogin.login { _ in } }
+        try await Task.sleep(nanoseconds: 150_000_000)
+        let loginPID = slowLogin.readerProcessIdentifier
+        slowLogin.releaseIdleResources()
+        try check(loginPID != nil && slowLogin.readerProcessIdentifier == loginPID, "Idle cleanup never interrupts a pending login")
+        try await loginTask.value
+        slowLogin.releaseIdleResources()
+        try check(slowLogin.readerProcessIdentifier == nil, "A completed login can release its reader without logging out")
+        slowLogin.stop(); unsetenv("AI_USAGE_FIXTURE_LOGIN_DELAY")
         var opened: URL?
         try await client.login { opened = $0 }
         try check(opened?.host == "auth.openai.com", "Login handles completion arriving before the request response")
@@ -177,6 +210,7 @@ import AppKit
             case "account/read": result = ["account": ["type": "chatgpt", "email": "codex@example.test", "planType": "plus"]]
             case "account/rateLimits/read": result = ["rateLimits": ["primary": ["usedPercent": 23, "windowDurationMins": 300]]]
             case "account/login/start":
+                if ProcessInfo.processInfo.environment["AI_USAGE_FIXTURE_LOGIN_DELAY"] == "1" { Thread.sleep(forTimeInterval: 0.5) }
                 emit(["method": "account/login/completed", "params": ["loginId": "fixture-login", "success": true]])
                 result = ["loginId": "fixture-login", "authUrl": "https://auth.openai.com/fixture"]
             case "initialize", "account/logout", "account/login/cancel": break

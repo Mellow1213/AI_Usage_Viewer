@@ -360,6 +360,7 @@ public partial class MainWindow : Window
             session.Usage = session.Usage with { Status = "error", Message = ex is FileNotFoundException
                 ? $"{AiServices.Name(session.Profile.Service)} CLI를 설치한 뒤 로그인해주세요." : "조회 실패 · CLI 로그인과 네트워크를 확인해주세요." };
         }
+        finally { session.ReleaseIdleResources(); }
     }
 
     private IAccountSession CreateSession(AiAccountProfile profile) => profile.Service switch
@@ -446,6 +447,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            session.ReleaseIdleResources();
             _codexLoginUrl = null; _loginProvider = null;
             _loginCancellation.Dispose(); _loginCancellation = null;
             if (!_closed) Publish();

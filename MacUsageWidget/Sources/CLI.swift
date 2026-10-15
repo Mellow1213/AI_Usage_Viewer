@@ -51,10 +51,13 @@ enum CLI {
     private let process = Process()
     private let input = Pipe(), output = Pipe(), errors = Pipe()
     private var buffer = Data()
+    private var stopped = false
     private var pending: [String: CheckedContinuation<Object, Error>] = [:]
     private var timers: [String: Task<Void, Never>] = [:]
     var event: ((Object) -> Void)?
-    var running: Bool { process.isRunning }
+    var running: Bool { !stopped && process.isRunning }
+    var processIdentifier: Int32 { process.processIdentifier }
+    var hasPendingRequests: Bool { !pending.isEmpty }
     init(executable: URL, arguments: [String], environment: [String: String], directory: URL) throws {
         process.executableURL = executable; process.arguments = arguments; process.environment = environment
         process.currentDirectoryURL = directory
@@ -89,6 +92,7 @@ enum CLI {
         }, onCancel: { Task { @MainActor [weak self] in self?.complete(key, .failure(CancellationError())) } })
     }
     private func receive(_ data: Data) {
+        guard !stopped else { return }
         guard !data.isEmpty else { output.fileHandleForReading.readabilityHandler = nil; return }
         buffer.append(data)
         guard buffer.count < 8 * 1024 * 1024 else { stop(); return }
@@ -111,6 +115,8 @@ enum CLI {
     }
     private func failAll(_ error: Error) { for key in Array(pending.keys) { complete(key, .failure(error)) } }
     func stop() {
+        guard !stopped else { return }; stopped = true
+        event = nil; buffer = Data()
         output.fileHandleForReading.readabilityHandler = nil; errors.fileHandleForReading.readabilityHandler = nil
         process.terminationHandler = nil
         try? input.fileHandleForWriting.close()
@@ -164,10 +170,12 @@ private final class CapturedOutput: @unchecked Sendable {
     private var rpc: LineProcess?
     private var sequence = 0
     private var loginID: String?
+    private var loginInProgress = false
     private var loginResults: [String: Bool] = [:]
     private var loginProcessID: Int32?
     private var terminalDirectory: URL?
     var loginURL: URL?
+    var readerProcessIdentifier: Int32? { rpc?.running == true ? rpc?.processIdentifier : nil }
     init(profile: Profile, root: URL) { self.profile = profile; self.root = root }
     func stop() {
         rpc?.stop(); rpc = nil
@@ -175,6 +183,12 @@ private final class CapturedOutput: @unchecked Sendable {
             try? Data().write(to: directory.appendingPathComponent("cancelled"))
             if !FileManager.default.fileExists(atPath: directory.appendingPathComponent("result").path), let pid = loginProcessID, pid > 0 { kill(pid, SIGTERM) }
         }
+    }
+    // Keep the reader only for a batch of account/usage RPCs or an active login.
+    // Authentication files and the last usage snapshot remain owned by the CLI/store.
+    func releaseIdleResources() {
+        guard !loginInProgress, loginID == nil, rpc?.hasPendingRequests != true else { return }
+        rpc?.stop(); rpc = nil; loginResults.removeAll()
     }
     private func codex() async throws -> LineProcess {
         if let rpc, rpc.running { return rpc }
@@ -237,6 +251,8 @@ private final class CapturedOutput: @unchecked Sendable {
     }
     func login(open: (URL) -> Void) async throws {
         guard !profile.useSystem else { throw WidgetError.message("전용 계정을 선택해주세요.") }
+        loginInProgress = true
+        defer { loginInProgress = false }
         if profile.service == "codex" {
             let client = try await codex()
             loginResults.removeAll()

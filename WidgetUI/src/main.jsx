@@ -43,7 +43,14 @@ const previewState = { ...initial, busy: false, accounts: initial.accounts.map(a
   { id: 'codex', status: 'ready', message: '계정 사용량', updatedAt: new Date().toISOString(), windows: [{ key: 'primary', label: '주간', usedPercent: 8, remainingPercent: 92, resetsAt: Date.now() / 1000 + 273000 }] },
   { id: 'claude', status: 'ready', message: 'Claude Code에서 수신', updatedAt: new Date().toISOString(), windows: [{ key: 'five_hour', label: '5시간', usedPercent: 36, remainingPercent: 64, resetsAt: Date.now() / 1000 + 8280 }, { key: 'seven_day', label: '주간', usedPercent: 62, remainingPercent: 38, resetsAt: Date.now() / 1000 + 180000 }] }
 ] };
-let latest = preview ? previewState : initial;
+const restoredUI = native?.uiState;
+const restoredForm = { ...restoredUI?.form };
+function takeFormDraft(id, saved) {
+  const entry = restoredForm[id];
+  delete restoredForm[id];
+  return entry?.saved === String(saved) ? entry.value : saved;
+}
+let latest = native?.initialState ?? (preview ? previewState : initial);
 native?.addEventListener('message', event => {
   latest = event.data;
   window.dispatchEvent(new CustomEvent('usage-state', { detail: latest }));
@@ -259,12 +266,16 @@ function CompactProvider({ provider, account, intervalMinutes, onMeasurements })
 }
 
 function AccountNickname({ account, disabled, onSave }) {
-  const [draft, setDraft] = useState(account.nickname ?? '');
-  useEffect(() => { setDraft(account.nickname ?? ''); }, [account.nickname]);
+  const saved = account.nickname ?? '';
+  const [draft, setDraft] = useState(() => takeFormDraft(`nickname-${account.id}`, saved));
+  const previousSaved = useRef(saved);
+  useEffect(() => {
+    if (previousSaved.current !== saved) { previousSaved.current = saved; setDraft(saved); }
+  }, [saved]);
   const changed = draft !== (account.nickname ?? '');
   return <form className="account-nickname" onSubmit={event => { event.preventDefault(); if (changed && !disabled) onSave(account.id, draft); }}>
     <label htmlFor={`nickname-${account.id}`}>별명 <span>비우면 기본 이름</span></label>
-    <div><input id={`nickname-${account.id}`} type="text" value={draft} maxLength={24} autoComplete="off" spellCheck={false}
+    <div><input id={`nickname-${account.id}`} type="text" value={draft} data-saved-value={saved} maxLength={24} autoComplete="off" spellCheck={false}
       placeholder="예: 개인용, 업무용" disabled={disabled} onChange={event => setDraft(event.target.value)}
       onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setDraft(account.nickname ?? ''); } }} />
       <button type="submit" disabled={disabled || !changed}>저장</button></div>
@@ -334,9 +345,11 @@ function ProviderPicker({ state, onAdd }) {
 
 function MeasurementSettings({ state, onChange }) {
   const interval = state.measurementIntervalMinutes ?? 30;
-  const [draft, setDraft] = useState(interval);
+  const [draft, setDraft] = useState(() => Number(takeFormDraft('measurement-interval', interval)));
   const committed = useRef(interval);
-  useEffect(() => { setDraft(interval); committed.current = interval; }, [interval]);
+  useEffect(() => {
+    if (committed.current !== interval) { setDraft(interval); committed.current = interval; }
+  }, [interval]);
   const commit = minutes => {
     setDraft(minutes);
     if (committed.current === minutes) return;
@@ -348,7 +361,7 @@ function MeasurementSettings({ state, onChange }) {
       <div className="measurement-heading"><h3><label htmlFor="measurement-interval">집계 주기</label></h3><output htmlFor="measurement-interval">{measurementLabel(draft)}</output></div>
       <p>오늘 누적치와 최근 소비량을 갱신하는 간격</p>
       {/* Preview while dragging; persist only on release or keyboard completion. */}
-      <input id="measurement-interval" className="measurement-slider" type="range" min="1" max="180" step="1" value={draft}
+      <input id="measurement-interval" className="measurement-slider" type="range" min="1" max="180" step="1" value={draft} data-saved-value={interval}
         aria-label="집계 주기 슬라이더" aria-valuetext={measurementLabel(draft)} style={{ '--range-progress': `${(draft - 1) / 179 * 100}%` }}
         onChange={event => setDraft(Number(event.target.value))} onPointerUp={event => commit(Number(event.currentTarget.value))}
         onKeyUp={event => commit(Number(event.currentTarget.value))} onBlur={event => commit(Number(event.currentTarget.value))} />
@@ -415,10 +428,10 @@ function SettingsPanel({ page, onBack, onClose, notice, children }) {
 function App() {
   const [state, setState] = useState(latest);
   const menuBar = state.platform === 'macos';
-  const [menu, setMenu] = useState(false);
-  const [menuPage, setMenuPage] = useState('settings');
-  const [expandedAccountId, setExpandedAccountId] = useState(null);
-  const pendingAccount = useRef(null);
+  const [menu, setMenu] = useState(restoredUI?.menu ?? false);
+  const [menuPage, setMenuPage] = useState(restoredUI?.menuPage ?? 'settings');
+  const [expandedAccountId, setExpandedAccountId] = useState(restoredUI?.expandedAccountId ?? null);
+  const pendingAccount = useRef(restoredUI?.pendingAccount ?? null);
   const reduce = useReducedMotion();
   const panel = useRef(null);
   const mode = state.viewMode ?? (state.collapsed ? 1 : 0);
@@ -438,6 +451,38 @@ function App() {
     const account = state.accounts?.find(item => item.id === provider.id);
     return account?.status === 'connected' && !['disconnected', 'error', 'signingIn'].includes(provider.status);
   });
+  useEffect(() => {
+    // The macOS host can release WebKit while closed. Retain only small UI state,
+    // never the renderer, account payloads, DOM nodes, or animation queues.
+    window.aiUsageCaptureUI = () => {
+      const form = Object.fromEntries([...document.querySelectorAll('input[data-saved-value]')]
+        .map(input => [input.id, { value: input.value, saved: input.dataset.savedValue }]));
+      const scroll = ['.cards', '.compact', '.settings-content'].flatMap(selector => {
+        const element = document.querySelector(selector);
+        return element ? [{ selector, top: element.scrollTop, left: element.scrollLeft }] : [];
+      });
+      const focused = document.activeElement;
+      const focus = focused?.id ? { id: focused.id,
+        ...(Number.isInteger(focused.selectionStart) ? { start: focused.selectionStart, end: focused.selectionEnd } : {}) } : null;
+      return { menu, menuPage, expandedAccountId, pendingAccount: pendingAccount.current, form, scroll, focus };
+    };
+    return () => { delete window.aiUsageCaptureUI; };
+  }, [menu, menuPage, expandedAccountId]);
+  useEffect(() => {
+    if (!restoredUI) return;
+    let frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => {
+      for (const position of restoredUI.scroll ?? []) {
+        const element = document.querySelector(position.selector);
+        if (element) { element.scrollTop = position.top; element.scrollLeft = position.left; }
+      }
+      const focus = restoredUI.focus, element = focus?.id && document.getElementById(focus.id);
+      if (element) {
+        element.focus({ preventScroll: true });
+        if (typeof element.setSelectionRange === 'function' && Number.isInteger(focus.start)) element.setSelectionRange(focus.start, focus.end);
+      }
+    }); });
+    return () => cancelAnimationFrame(frame);
+  }, []);
   useEffect(() => {
     const receive = event => { setState(event.detail); };
     window.addEventListener('usage-state', receive);

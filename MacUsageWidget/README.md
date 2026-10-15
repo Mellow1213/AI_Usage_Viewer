@@ -65,7 +65,8 @@
 ### 조회와 회전
 
 - 앱 실행 중 60초마다 표시 중인 연결 계정을 확인합니다. Codex는 이때 한도를 조회하고, Claude의 자동 사용량 요청은 계정별 5분 간격으로 제한합니다. 수동 새로고침은 제한 간격을 기다리지 않으며 동시에 최대 3개 계정을 조회합니다.
-- 팝오버를 닫아도 조회와 집계는 계속합니다. 닫힌 동안 WebKit으로 상태를 반복 전달하지 않고 다시 열 때 최신 상태를 전달합니다.
+- 계정·사용량 조회 묶음이 끝나면 앱이 시작한 Codex `app-server`를 종료합니다. 다음 조회 때 새로 초기화하며 로그인 중이거나 응답 대기 중인 연결은 종료하지 않습니다. 인증 파일과 수신값은 그대로 유지합니다.
+- 팝오버를 닫아도 조회와 집계는 계속합니다. 화면을 처음 열기 전에는 WebKit을 만들지 않으며, 닫은 뒤 5초가 지나면 웹 화면과 메시지 연결을 해제합니다. 다시 열 때 최신 상태와 설정 페이지·펼친 계정·저장 전 별명·스크롤을 복원합니다. 짧은 닫기·열기는 같은 화면을 재사용합니다.
 - 자세히 → 간략히는 시계 방향 120도, 간략히 → 자세히는 반시계 방향 120도입니다. `logoRotation`과 `logoRotationStep`으로 공통 UI에 방향과 도착 각도를 전달합니다.
 - 새로고침·로그인 시작 시 삼각형은 약 1.6초 동안 한 바퀴만 회전합니다. 조회가 빨리 끝나도 회전을 마치고, 느리게 끝나도 회전을 계속 추가하지 않습니다. 회전 중 겹친 갱신은 새 회전을 예약하지 않습니다.
 - 팝오버를 닫을 때 카드의 회전을 정리하며, 다시 열 때 지나간 회전을 재생하지 않습니다. 메뉴 막대 회전은 단조 증가 시간으로 계산해 잠자기 후에도 밀린 프레임을 따라 돌지 않습니다.
@@ -138,7 +139,7 @@ Windows의 `window-state.json`, `dashboard.json` 등과는 별도 형식이며 �
 ```bash
 open -n 'artifacts/macos/AI Usage.app' --args \
   --data-dir "$PWD/artifacts/macos/ui-test-data" \
-  --fixture --smoke-test "$PWD/artifacts/macos/ui-test"
+  --fixture --smoke-test "$PWD/artifacts/macos/ui-test" --verify-memory
 ```
 
 `smoke.json`의 `passed: true`와 `menu-bar.png`를 확인합니다. 카드를 표시하고 자동 검증 후 테스트 앱만 종료합니다.
@@ -148,12 +149,26 @@ open -n 'artifacts/macos/AI Usage.app' --args \
 - 100ms·2400ms 조회 상태에서 역회전 없이 한 바퀴 회전
 - 닫힌 동안 12회 갱신하거나 회전 도중 닫았다 다시 열 때 밀린 회전 없음
 - 다시 연 뒤 연속 갱신이 한 바퀴로 합쳐짐
+- 웹 화면 해제 후 설정·미저장 별명·보기 모드 복원 및 새로고침·전환 회전 유지
 
 검증 팝오버는 다른 앱에 포커스가 옮겨져도 유지됩니다. 일반 앱의 팝오버는 바깥 클릭으로 닫힙니다. 이 검증은 실제 Claude OAuth 로그인이나 배포 대상 모든 Mac에서의 실행을 보장하지 않습니다.
 
+### 메모리 측정
+
+빌드 후 새 출력 폴더를 지정합니다. 예시 계정으로 앱과 관련 보조 프로세스 전체의 physical footprint를 수집하고, 여러 번 닫고 열면서 화면 복원 시간도 기록합니다.
+
+```bash
+python3 MacUsageWidget/Tests/measure-memory.py \
+  'artifacts/macos/AI Usage.app' artifacts/macos/memory-check
+```
+
+`measurement.json`에 화면별 평균과 원시 표본, `memory-benchmark.json`에 반복 복원 결과를 저장합니다. 이 측정은 예시 UI만 사용하므로 실제 CLI 조회 프로세스의 비용은 별도로 확인합니다.
+
+변경 전후 수치와 측정 범위는 [메모리 비교 기록](../docs/memory.md)에 있습니다.
+
 ### 실제 Codex 조회 검증
 
-`verify.sh` 실행 후 현재 Codex CLI 로그인으로 계정·한도를 조회하려면 별도로 실행합니다. 로그인 변경이나 모델 요청 없이 실제 조회만 수행하며 계정 이메일·한도 수치는 콘솔에 출력하지 않습니다.
+`verify.sh` 실행 후 현재 Codex CLI 로그인으로 계정·한도를 조회하려면 별도로 실행합니다. 로그인 변경이나 모델 요청 없이 실제 조회를 3회 수행하며, 각 조회가 끝난 뒤 프로세스를 종료하고 다시 연결되는지 확인합니다. 계정 이메일·한도 수치는 콘솔에 출력하지 않습니다.
 
 ```bash
 artifacts/macos/verification/verify --live-codex "$PWD/artifacts/macos/live-codex-check"
