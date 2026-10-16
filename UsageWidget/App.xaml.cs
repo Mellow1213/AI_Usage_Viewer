@@ -21,6 +21,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        WidgetStorage.UseDataDirectory(UsageWidget.MainWindow.GetDataDirectory());
         if (e.Args.Contains("--disconnect-claude"))
         {
             try

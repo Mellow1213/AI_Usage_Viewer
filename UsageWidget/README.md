@@ -15,13 +15,13 @@
 아래 명령은 모두 저장소 루트 기준입니다.
 
 ```powershell
-.\build-widget.ps1 -RestoreUI
+.\build-dev-widget.ps1 -RestoreUI
 .\run-dev-widget.cmd
 ```
 
-스크립트는 `WidgetUI`에서 `npm ci`와 `npm run build`를 실행한 다음 `dotnet publish`로 `Release/AIUsageWidget.exe`를 생성합니다. .NET 런타임을 포함하는 Windows x64 배포본이며 `Release` 전체가 실행에 필요합니다. 이후 빌드에서는 `-RestoreUI`를 생략할 수 있고, `node_modules`가 없으면 자동으로 의존성을 설치합니다.
+개발 스크립트는 `build-widget.ps1 -OutputDirectory artifacts/dev-build`를 호출합니다. `WidgetUI`에서 `npm ci`와 `npm run build`를 실행한 다음 `dotnet publish`로 `artifacts/dev-build/AIUsageWidget.exe`를 생성하며, 기존 `Release`와 설치본은 덮어쓰지 않습니다. .NET 런타임을 포함하는 Windows x64 빌드이며 출력 폴더 전체가 실행에 필요합니다. 이후 빌드에서는 `-RestoreUI`를 생략할 수 있고, `node_modules`가 없으면 자동으로 의존성을 설치합니다.
 
-AI Usage Viewer의 실행 파일은 `Release/AIUsageWidget.exe`입니다. 기존 삼각형 아이콘, 애니메이션과 `%LOCALAPPDATA%\AIUsageWidget`의 계정 저장 구조를 유지합니다.
+기본 `build-widget.ps1`은 기존처럼 `Release/AIUsageWidget.exe`를 생성합니다. 기존 삼각형 아이콘, 애니메이션과 `%LOCALAPPDATA%\AIUsageWidget`의 계정 저장 구조를 유지합니다.
 
 ### 실사용 설치본과 개발 환경
 
@@ -34,7 +34,9 @@ AI Usage Viewer의 실행 파일은 `Release/AIUsageWidget.exe`입니다. 기존
 
 설치 폴더는 `%LOCALAPPDATA%\Mellow.AIUsageViewer`이며 기존 `%LOCALAPPDATA%\AIUsageWidget` 계정 데이터는 옮기지 않습니다. `publish-widget.ps1`은 버전별 격리 빌드·패키징, 소스 커밋 연결, GitHub 초안 업로드와 SHA256 검증 후 Latest 공개까지 수행합니다. 이미 공개된 버전은 재사용할 수 없습니다. 다른 PC는 Releases의 `Mellow.AIUsageViewer-win-Setup.exe`를 한 번 설치한 후 앱에서 다운로드·적용합니다.
 
-`run-widget.cmd`는 설치본을 우선 실행합니다. `run-dev-widget.cmd`는 `Release/AIUsageWidget.exe --data-dir artifacts/dev-profile`로 개발 데이터를 분리합니다. 단일 실행 제한은 기본 데이터 폴더에서 이전 버전과 호환되고, 별도 개발 데이터 폴더에서는 독립적입니다. 개발판과 실사용판을 동시에 실행해도 같은 인증 저장소를 공유하지 않습니다.
+`run-widget.cmd`는 설치본만 실행하며 설치본이 없으면 설치 안내 후 종료합니다. 개발 빌드로 대신 실행하지 않습니다. `run-dev-widget.cmd`는 `artifacts/dev-build/AIUsageWidget.exe --data-dir artifacts/dev-profile`로 개발 데이터를 분리합니다. 계정·설정·관측 기록·WebView·오류 로그와 로그 회전 파일이 모두 개발 프로필에 저장됩니다. 단일 실행 제한은 기본 데이터 폴더에서 이전 버전과 호환되고, 별도 개발 데이터 폴더에서는 독립적입니다.
+
+실사용은 Windows 시작 메뉴의 설치본을 사용합니다. Windows 패키지 환경에서 실행한 자식 프로세스는 AppData가 해당 패키지의 `LocalCache`로 리디렉션될 수 있으므로, 개발 도구에서 실사용 앱을 직접 실행하지 않습니다. 별도 프로필의 인증을 자동 병합하지 않으며 개발판에는 실제 계정 대신 예시 데이터나 테스트 전용 계정을 사용합니다. Docker나 VM은 이 실행·데이터 분리에 필요하지 않습니다.
 
 Velopack SDK와 `vpk`는 1.2.161로 고정합니다. WPF 시작점에서 UI·단일 실행 검사 전에 Velopack 훅을 처리하고 자동 적용은 끕니다. 업데이트 서비스는 시작 시 한 번과 사용자 요청 때만 실행하며 주기 타이머를 만들지 않습니다. 적용 시 `Update.exe`를 대기 상태로 실행한 뒤 정상 종료하여 창 상태 저장·CLI 정리를 마칩니다. 설치·제거·업데이트 훅에서 계정 데이터 삭제나 로그아웃을 실행하지 않습니다.
 
@@ -118,7 +120,7 @@ dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Rel
 .\Release\AIUsageWidget.exe --data-dir D:\Temp\AIUsageWidget-Dev
 ```
 
-이 옵션은 계정·설정·관측 기록·WebView 프로필의 저장 위치를 바꿉니다. `WidgetStorage.Log`의 오류 로그는 옵션과 관계없이 기본 `%LOCALAPPDATA%\AIUsageWidget`에 기록됩니다.
+이 옵션은 계정·설정·관측 기록·WebView 프로필과 오류 로그의 저장 위치를 함께 바꿉니다. `widget.log`와 `widget.log.old`도 지정한 프로필에 저장합니다. 검증 호스트는 임시 출력 폴더를 로그 위치로 지정합니다.
 
 ## 계정 격리와 서비스 연동
 

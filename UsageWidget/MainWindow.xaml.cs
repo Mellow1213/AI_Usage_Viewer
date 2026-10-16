@@ -79,6 +79,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _dataDirectory = dataDirectory;
+        WidgetStorage.UseDataDirectory(dataDirectory);
         _daily = new(dataDirectory);
         _testMode = testMode;
         _checkUpdatesOnStartup = checkUpdatesOnStartup ?? !testMode;

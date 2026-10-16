@@ -6,7 +6,7 @@ Codex와 Claude의 구독 잔여량, 리셋 시간과 관측 사용량을 확인
 |---|---|---|
 | 실행 방식 | WPF + WebView2 데스크톱 위젯 | AppKit + WebKit 메뉴 막대 앱 |
 | 앱 파일 | Releases의 `Mellow.AIUsageViewer-win-Setup.exe` | CPU에 맞는 Releases ZIP의 `AI Usage.app` 번들 전체 |
-| 실행 | `run-widget.cmd` 또는 `Release/AIUsageWidget.exe` | `AI Usage.app` 또는 `run-macos.command` |
+| 실행 | 시작 메뉴의 설치본 또는 `run-widget.cmd` | `AI Usage.app` 또는 `run-macos.command` |
 | 보기 모드 | 자세히 · 간략히 · 로고만 보기 | 자세히 · 간략히 보기, 메뉴 막대로 닫기 |
 | 창 조작 | 드래그, 항상 위에 표시, 모서리 배치 | 메뉴 막대 아이콘으로 열기, 바깥 클릭으로 닫기 |
 | 새로고침 | 카드 하단 버튼 · `F5` | 카드 상단 버튼 · `⌘R` · `F5` · 아이콘 우클릭 메뉴 |
@@ -79,11 +79,11 @@ WSL에만 설치한 Linux CLI는 이 Windows 앱의 실행 파일 탐색 대상�
 Windows, .NET 8 SDK, npm과 Node.js `^20.19.0 || >=22.12.0`이 필요합니다. 저장소 루트에서 실행합니다.
 
 ```powershell
-.\build-widget.ps1 -RestoreUI
-.\run-widget.cmd
+.\build-dev-widget.ps1 -RestoreUI
+.\run-dev-widget.cmd
 ```
 
-React UI와 Windows x64 앱을 빌드해 `Release`에 저장합니다. 이후 의존성을 다시 설치할 필요가 없으면 `-RestoreUI`를 생략할 수 있습니다. **소스 변경은 기존 `Release` 실행 파일에 자동 반영되지 않으므로 Windows에서 다시 빌드해야 합니다.** macOS 빌드는 `Release`를 갱신하지 않습니다.
+React UI와 Windows x64 개발판을 `artifacts/dev-build`에 빌드하고, 계정·설정·WebView·로그는 `artifacts/dev-profile`로 분리합니다. 기존 `Release`와 실사용 설치본은 덮어쓰지 않습니다. 이후 의존성을 다시 설치할 필요가 없으면 `-RestoreUI`를 생략할 수 있습니다. **소스 변경은 실행 파일에 자동 반영되지 않으므로 Windows에서 다시 빌드해야 합니다.** 기본 `build-widget.ps1`의 출력은 기존처럼 `Release`이며 macOS 빌드는 이를 갱신하지 않습니다.
 
 ### Windows 업데이트와 제거
 

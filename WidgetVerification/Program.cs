@@ -23,6 +23,7 @@ internal static partial class Program
         if (args.Contains("--presence-fixture")) return RunPresenceFixture(args);
         _output = Path.GetFullPath(args.FirstOrDefault() ?? "artifacts/widget-verification");
         Directory.CreateDirectory(_output);
+        WidgetStorage.UseDataDirectory(_output);
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Startup += async (_, _) =>
         {
@@ -30,6 +31,7 @@ internal static partial class Program
             try
             {
                 AccountRemovalChecks.Run(Path.Combine(_output, "account-removal"), Check);
+                StorageIsolationChecks.Run(Path.Combine(_output, "storage-isolation"), Check);
                 if (args.Contains("--updates-only")) await VerifyUpdatesAsync();
                 else if (args.Contains("--presence-only")) await VerifyPresenceAsync();
                 else if (args.Contains("--performance-only")) await MeasurePerformanceAsync();

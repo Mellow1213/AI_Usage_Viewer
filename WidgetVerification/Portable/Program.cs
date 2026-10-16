@@ -6,6 +6,7 @@ using UsageWidget;
 if (args.Contains("app-server")) { await Fixture(); return; }
 var root = Path.GetFullPath(args.FirstOrDefault() ?? Path.Combine(Path.GetTempPath(), "aiusage-process-" + Guid.NewGuid().ToString("N")));
 Directory.CreateDirectory(root);
+WidgetStorage.UseDataDirectory(root);
 var checks = 0;
 void Check(bool condition, string label)
 {
@@ -20,6 +21,7 @@ CodexClient Client(string name, string mode = "normal") => new(Path.Combine(root
     return info;
 });
 QuotaResetChecks.Run(Path.Combine(root, "quota-resets"), Check);
+StorageIsolationChecks.Run(Path.Combine(root, "storage-isolation"), Check);
 async Task Stopped(int pid)
 {
     for (var attempt = 0; attempt < 100; attempt++)

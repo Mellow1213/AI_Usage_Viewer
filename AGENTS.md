@@ -4,6 +4,12 @@ This repository is AI Usage Viewer only. Build with build-widget.ps1 and run Rel
 
 Keep the existing AI Usage triangle icon, animations, account storage at %LOCALAPPDATA%\AIUsageWidget, and unrelated in-progress changes when working on this project.
 
+# Development and daily-use environments
+
+For normal development, run `build-dev-widget.ps1` (which calls `build-widget.ps1`) and `run-dev-widget.cmd`. Development binaries live in `artifacts/dev-build`; account settings, WebView state, history and logs live in `artifacts/dev-profile`. Never copy real account data into that profile. Keep legacy `Release/` output and the running daily-use app intact.
+
+Daily use runs the installed application from the Windows Start menu, outside the coding tool's package environment, using the normal `%LOCALAPPDATA%\AIUsageWidget` profile. `run-widget.cmd` is installation-only and must not fall back to development binaries. A packaged parent's AppData redirection can select a different profile even when the visible path is identical; do not launch the daily-use app directly from the coding tool or point it at a `Packages/.../LocalCache` profile. Local account migration must preserve backups and must not stop, update or restart the existing app automatically.
+
 # Mandatory release workflow for AI agents
 
 The production update channel is the public GitHub Releases repository https://github.com/Mellow1213/AI_Usage_Viewer. Read docs/releasing.md before any application change. Follow that guide's release pipeline whenever application behavior, UI, or distributed files change; a local build, local feed, Git commit/push, or draft release alone is not completed delivery. Unless the user explicitly requests local-only work or no deployment, finish with a verified public release. Documentation-only changes do not need a new app version.
