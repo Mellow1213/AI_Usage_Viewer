@@ -54,6 +54,23 @@ jobs:
           cat artifacts/macos/ui-test/console.log
           test ! -f artifacts/macos/ui-test/progress.json || cat artifacts/macos/ui-test/progress.json
           python3 -c 'import json; r=json.load(open("artifacts/macos/ui-test/smoke.json")); print(r); assert r["passed"]'
+      - name: Diagnose hidden page release under LLDB
+        if: always() && matrix.runner == 'macos-15-intel'
+        env:
+          AI_USAGE_DIAGNOSE_HIDDEN_DELAY: '1'
+        run: |
+          mkdir -p artifacts/macos/diagnostic
+          python3 - <<'PY'
+          import pathlib, subprocess
+          root = pathlib.Path.cwd()
+          with open('artifacts/macos/diagnostic/lldb.log', 'w') as log:
+              subprocess.run(['xcrun', 'lldb', '--batch', '-o', 'run', '-o', 'thread backtrace all', '--',
+                  str(root / 'artifacts/macos/AI Usage.app/Contents/MacOS/AIUsageWidget'),
+                  '--data-dir', str(root / 'artifacts/macos/diagnostic/data'), '--fixture',
+                  '--smoke-test', str(root / 'artifacts/macos/diagnostic')],
+                  stdout=log, stderr=subprocess.STDOUT, timeout=100, check=True)
+          print(pathlib.Path('artifacts/macos/diagnostic/lldb.log').read_text())
+          PY
       - name: Prepare distribution
         run: |
           version=$(sed -nE 's/.*<Version>([^<]+)<\/Version>.*/\1/p' UsageWidget/UsageWidget.csproj)
@@ -73,3 +90,5 @@ jobs:
           path: |
             artifacts/macos/verification/**/results.json
             artifacts/macos/ui-test/*
+            artifacts/macos/diagnostic/*.log
+            artifacts/macos/diagnostic/*.json

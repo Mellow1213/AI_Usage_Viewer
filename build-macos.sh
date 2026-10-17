@@ -10,7 +10,7 @@ if [[ ! -d WidgetUI/node_modules/vite ]]; then
   (cd WidgetUI && npm ci --no-audit --no-fund)
 fi
 (cd WidgetUI && npm run build -- --outDir "$build_dir/Web")
-xcrun swiftc -swift-version 5 -O -target "$(uname -m)-apple-macos13.0" \
+xcrun swiftc -swift-version 5 -O -g -target "$(uname -m)-apple-macos13.0" \
   -module-cache-path "$build_dir/module-cache" \
   -framework AppKit -framework WebKit -framework CryptoKit \
   MacUsageWidget/Sources/*.swift -o "$app_dir/Contents/MacOS/AIUsageWidget"

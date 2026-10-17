@@ -198,6 +198,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
     }
     private func discardWebContent() {
         guard let page = web else { return }
+        smokeCheckpoint("discard-web-content")
         ready = false; lastPayload = ""
         page.stopLoading()
         page.configuration.userContentController.removeScriptMessageHandler(forName: "native")
@@ -346,6 +347,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         return result
     }
     private func verifyHiddenRefreshRotation(interrupt: Bool = false) async throws -> Object {
+        smokeCheckpoint(interrupt ? "interrupted-refresh-start" : "hidden-refresh-start")
         showPopover()
         try await Task.sleep(nanoseconds: 1_850_000_000)
         let data = try JSONSerialization.data(withJSONObject: store.state(maxHeight: maxHeight))
@@ -361,11 +363,16 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         }
         popover.performClose(nil)
         try await Task.sleep(nanoseconds: 250_000_000)
+        if store.fixture && ProcessInfo.processInfo.environment["AI_USAGE_DIAGNOSE_HIDDEN_DELAY"] == "1" {
+            try await Task.sleep(nanoseconds: 6_000_000_000)
+        }
+        smokeCheckpoint("hidden-refresh-evaluate")
         try await web.widgetEvaluate("window.__hiddenHostUpdates = 0; window.aiUsageNative.addEventListener('message', () => window.__hiddenHostUpdates++);")
         for _ in 0..<3 { publish(force: true) }
         let hidden = try await web.widgetEvaluate("({visible: window.aiUsageNative.visible, hostUpdates: window.__hiddenHostUpdates})") as? Object ?? [:]
         // Accelerate several background polling cycles while WebKit cannot paint.
         for _ in 0..<(interrupt ? 1 : 12) {
+            smokeCheckpoint("hidden-refresh-cycle")
             if !interrupt {
                 try await web.widgetEvaluate("window.aiUsageReceive({ ...\(state), busy: true });")
                 try await Task.sleep(nanoseconds: 80_000_000)
@@ -395,6 +402,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         })();
         """)
         showPopover()
+        smokeCheckpoint("hidden-refresh-reopened")
         try await waitForScriptCompletion("__hiddenRefreshRotation")
         var result = try await web.widgetEvaluate("window.__hiddenRefreshRotation") as? Object ?? [:]
         result["backgroundRefreshes"] = interrupt ? 0 : 12
@@ -611,6 +619,15 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                              "compactRotation": compactRotation, "expandedRotation": expandedRotation,
                              "interruptedRefresh": interruptedRefresh, "reopenedRefresh": reopenedRefresh, "text": first["text"] ?? ""])
             } catch { finishSmoke(["passed": false, "error": String(describing: error)]) }
+        }
+    }
+    private func smokeCheckpoint(_ phase: String) {
+        guard let smokeDirectory else { return }
+        let entry: Object = ["phase": phase, "webLoaded": web != nil, "ready": ready,
+            "visible": popover.isShown, "uptime": ProcessInfo.processInfo.systemUptime]
+        try? JSON.writeObject(entry, to: smokeDirectory.appendingPathComponent("progress.json"))
+        if let data = try? JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys]) {
+            FileHandle.standardError.write(data + Data("\n".utf8))
         }
     }
     private func finishSmoke(_ result: Object) {
