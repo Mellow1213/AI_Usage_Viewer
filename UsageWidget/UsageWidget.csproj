@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RollForward>Major</RollForward>
     <AssemblyName>AIUsageWidget</AssemblyName>
-    <Version>1.2.2</Version>
+    <Version>1.2.3</Version>
     <StartupObject>UsageWidget.App</StartupObject>
     <ApplicationIcon>Assets\usage-widget.ico</ApplicationIcon>
     <!-- Debug symbols stay in local build output; public packages must not contain developer source paths. -->

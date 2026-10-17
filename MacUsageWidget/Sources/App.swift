@@ -1,6 +1,11 @@
 import AppKit
 import WebKit
 
+private enum WebContentError: Error {
+    case unavailable
+    case replacedDuringOperation
+}
+
 @MainActor extension WKWebView {
     // Older SDK async overlays force-unwrap undefined JavaScript results.
     // The callback API preserves nil and also works for read-only object results.
@@ -35,7 +40,8 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, NSPopoverDelegate {
     private var item: NSStatusItem!
     private let popover = NSPopover()
-    private var web: WKWebView!
+    private var web: WKWebView?
+    private var webOperationCount = 0
     private var store: WidgetStore!
     private var ready = false
     private var contentVisible = false
@@ -139,12 +145,13 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         })();
         """
         configuration.userContentController.addUserScript(WKUserScript(source: bridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        web = WKWebView(frame: NSRect(origin: .zero, size: savedSize), configuration: configuration)
-        web.navigationDelegate = self; web.uiDelegate = self
-        web.underPageBackgroundColor = NSColor(calibratedRed: 17/255, green: 19/255, blue: 22/255, alpha: 1)
-        let controller = NSViewController(); controller.view = web
+        let page = WKWebView(frame: NSRect(origin: .zero, size: savedSize), configuration: configuration)
+        web = page
+        page.navigationDelegate = self; page.uiDelegate = self
+        page.underPageBackgroundColor = NSColor(calibratedRed: 17/255, green: 19/255, blue: 22/255, alpha: 1)
+        let controller = NSViewController(); controller.view = page
         popover.contentViewController = controller; popover.contentSize = savedSize
-        web.load(URLRequest(url: URL(string: "aiusage://widget/index.html")!))
+        page.load(URLRequest(url: URL(string: "aiusage://widget/index.html")!))
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showPopover(); return true }
     func applicationWillTerminate(_ notification: Notification) {
@@ -179,26 +186,51 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
     func popoverDidShow(_ notification: Notification) { contentVisible = true; publish(force: true) }
     func popoverWillClose(_ notification: Notification) {
         contentVisible = false
-        guard ready else { return }
-        web.evaluateJavaScript("window.aiUsageSetVisible(false);", completionHandler: nil)
+        guard ready, let page = web else { return }
+        page.evaluateJavaScript("window.aiUsageSetVisible(false);", completionHandler: nil)
     }
     func popoverDidClose(_ notification: Notification) {
+        scheduleWebContentRelease()
+    }
+    private func scheduleWebContentRelease() {
         releaseTask?.cancel()
+        releaseTask = nil
+        guard !popover.isShown, webOperationCount == 0 else { return }
         releaseTask = Task { [weak self] in
             do {
                 // Brief reopenings stay instant; an idle card releases its web processes.
                 try await Task.sleep(nanoseconds: 5_000_000_000)
-                guard let self, !self.popover.isShown, self.ready, let page = self.web else { return }
+                guard let self, !self.popover.isShown, self.webOperationCount == 0,
+                      self.ready, let page = self.web else { return }
                 guard let snapshot = try await page.widgetEvaluate("window.aiUsageCaptureUI?.()") as? Object else { return }
-                guard !Task.isCancelled, !self.popover.isShown, self.web === page else { return }
+                guard !Task.isCancelled, !self.popover.isShown, self.webOperationCount == 0,
+                      self.web === page else { return }
                 self.savedUI = snapshot
                 self.discardWebContent()
             } catch { /* Keep the live page if its editing state could not be captured. */ }
         }
     }
+    // An async operation owns a particular page until it returns. Idle eviction
+    // must not invalidate it between awaits; a process failure may still do so.
+    private func withWebContent<T>(_ operation: (WKWebView) async throws -> T) async throws -> T {
+        guard let page = web else { throw WebContentError.unavailable }
+        releaseTask?.cancel(); releaseTask = nil
+        webOperationCount += 1
+        defer {
+            webOperationCount -= 1
+            if webOperationCount == 0, !popover.isShown { scheduleWebContentRelease() }
+        }
+        let result = try await operation(page)
+        guard web === page else { throw WebContentError.replacedDuringOperation }
+        return result
+    }
+    @discardableResult private func evaluateWebContent(_ script: String) async throws -> Any? {
+        try await withWebContent { page in try await page.widgetEvaluate(script) }
+    }
     private func discardWebContent() {
         guard let page = web else { return }
         smokeCheckpoint("discard-web-content")
+        releaseTask?.cancel(); releaseTask = nil
         ready = false; lastPayload = ""
         page.stopLoading()
         page.configuration.userContentController.removeScriptMessageHandler(forName: "native")
@@ -252,10 +284,10 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         item?.button?.toolTip = summary.isEmpty ? "AI Usage · 클릭해서 계정 연결" : summary
         popover.animates = store.preferences.animateTransitions && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         // Keep polling in the background, but deliver only the latest state when reopened.
-        guard ready, contentVisible, let data = try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]),
+        guard ready, contentVisible, let page = web, let data = try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]),
               let payload = String(data: data, encoding: .utf8), force || payload != lastPayload else { return }
         lastPayload = payload
-        web.evaluateJavaScript("window.aiUsageSetVisible(true); window.aiUsageReceive(\(payload));", completionHandler: nil)
+        page.evaluateJavaScript("window.aiUsageSetVisible(true); window.aiUsageReceive(\(payload));", completionHandler: nil)
     }
     private func updateIconAnimation() {
         let allowed = store.preferences.animateTransitions && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -291,7 +323,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
     }
     private func waitForScriptCompletion(_ name: String) async throws {
         for _ in 0..<200 {
-            if try await web.widgetEvaluate("window.\(name)?.finished === true") as? Bool == true { return }
+            if try await evaluateWebContent("window.\(name)?.finished === true") as? Bool == true { return }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         throw WidgetError.message("WebKit verification did not finish: \(name)")
@@ -304,7 +336,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         let data = try JSONSerialization.data(withJSONObject: store.state(maxHeight: maxHeight))
         let state = String(decoding: data, as: UTF8.self)
         let sampleMilliseconds = max(2100, activeMilliseconds + 350)
-        try await web.widgetEvaluate("""
+        try await evaluateWebContent("""
         (() => {
           const state = \(state), logo = document.querySelector('.triangle');
           const readAngle = () => {
@@ -337,7 +369,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         })();
         """)
         try await waitForScriptCompletion("__refreshRotation")
-        var result = try await web.widgetEvaluate("window.__refreshRotation") as? Object ?? [:]
+        var result = try await evaluateWebContent("window.__refreshRotation") as? Object ?? [:]
         result["busyMilliseconds"] = activeMilliseconds
         result["refreshes"] = burst ? 10 : 1
         result["passed"] = result["finished"] as? Bool == true && (result["frames"] as? Int ?? 0) > 20
@@ -347,76 +379,83 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         return result
     }
     private func verifyHiddenRefreshRotation(interrupt: Bool = false) async throws -> Object {
-        smokeCheckpoint(interrupt ? "interrupted-refresh-start" : "hidden-refresh-start")
-        showPopover()
-        try await Task.sleep(nanoseconds: 1_850_000_000)
-        let data = try JSONSerialization.data(withJSONObject: store.state(maxHeight: maxHeight))
-        let state = String(decoding: data, as: UTF8.self)
-        var interruptedAngle = 0.0
-        if interrupt {
-            let readAngle = "(() => { const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.triangle')).transform); return Math.atan2(m.b, m.a) * 180 / Math.PI; })()"
-            let initialAngle = try await web.widgetEvaluate(readAngle) as? Double ?? 0
-            try await web.widgetEvaluate("window.aiUsageReceive({ ...\(state), busy: true });")
-            try await Task.sleep(nanoseconds: 350_000_000)
-            let angle = try await web.widgetEvaluate(readAngle) as? Double ?? 0
-            interruptedAngle = abs((angle - initialAngle + 540).truncatingRemainder(dividingBy: 360) - 180)
-        }
-        popover.performClose(nil)
-        try await Task.sleep(nanoseconds: 250_000_000)
-        if store.fixture && ProcessInfo.processInfo.environment["AI_USAGE_DIAGNOSE_HIDDEN_DELAY"] == "1" {
-            try await Task.sleep(nanoseconds: 6_000_000_000)
-        }
-        smokeCheckpoint("hidden-refresh-evaluate")
-        try await web.widgetEvaluate("window.__hiddenHostUpdates = 0; window.aiUsageNative.addEventListener('message', () => window.__hiddenHostUpdates++);")
-        for _ in 0..<3 { publish(force: true) }
-        let hidden = try await web.widgetEvaluate("({visible: window.aiUsageNative.visible, hostUpdates: window.__hiddenHostUpdates})") as? Object ?? [:]
-        // Accelerate several background polling cycles while WebKit cannot paint.
-        for _ in 0..<(interrupt ? 1 : 12) {
-            smokeCheckpoint("hidden-refresh-cycle")
-            if !interrupt {
-                try await web.widgetEvaluate("window.aiUsageReceive({ ...\(state), busy: true });")
+        return try await withWebContent { page in
+            smokeCheckpoint(interrupt ? "interrupted-refresh-start" : "hidden-refresh-start")
+            showPopover()
+            try await Task.sleep(nanoseconds: 1_850_000_000)
+            let data = try JSONSerialization.data(withJSONObject: store.state(maxHeight: maxHeight))
+            let state = String(decoding: data, as: UTF8.self)
+            var interruptedAngle = 0.0
+            if interrupt {
+                let readAngle = "(() => { const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.triangle')).transform); return Math.atan2(m.b, m.a) * 180 / Math.PI; })()"
+                let initialAngle = try await evaluateWebContent(readAngle) as? Double ?? 0
+                try await evaluateWebContent("window.aiUsageReceive({ ...\(state), busy: true });")
+                try await Task.sleep(nanoseconds: 350_000_000)
+                let angle = try await evaluateWebContent(readAngle) as? Double ?? 0
+                interruptedAngle = abs((angle - initialAngle + 540).truncatingRemainder(dividingBy: 360) - 180)
+            }
+            popover.performClose(nil)
+            try await Task.sleep(nanoseconds: 250_000_000)
+            let heldPastIdleDeadline = !interrupt && CommandLine.arguments.contains("--verify-memory")
+            if heldPastIdleDeadline {
+                // Regression: the full operation outlives the normal five-second idle
+                // deadline. The page must remain usable, on both CPU architectures.
+                try await Task.sleep(nanoseconds: 6_000_000_000)
+            }
+            smokeCheckpoint("hidden-refresh-evaluate")
+            try await evaluateWebContent("window.__hiddenHostUpdates = 0; window.aiUsageNative.addEventListener('message', () => window.__hiddenHostUpdates++);")
+            for _ in 0..<3 { publish(force: true) }
+            let hidden = try await evaluateWebContent("({visible: window.aiUsageNative.visible, hostUpdates: window.__hiddenHostUpdates})") as? Object ?? [:]
+            // Accelerate several background polling cycles while WebKit cannot paint.
+            for _ in 0..<(interrupt ? 1 : 12) {
+                smokeCheckpoint("hidden-refresh-cycle")
+                if !interrupt {
+                    try await evaluateWebContent("window.aiUsageReceive({ ...\(state), busy: true });")
+                    try await Task.sleep(nanoseconds: 80_000_000)
+                }
+                try await evaluateWebContent("window.aiUsageReceive({ ...\(state), busy: false });")
                 try await Task.sleep(nanoseconds: 80_000_000)
             }
-            try await web.widgetEvaluate("window.aiUsageReceive({ ...\(state), busy: false });")
-            try await Task.sleep(nanoseconds: 80_000_000)
+            try await evaluateWebContent("""
+            (() => {
+              const logo = document.querySelector('.triangle');
+              const readAngle = () => {
+                const transform = getComputedStyle(logo).transform;
+                const matrix = transform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(transform);
+                return Math.atan2(matrix.b, matrix.a) * 180 / Math.PI;
+              };
+              const result = window.__hiddenRefreshRotation = { frames: 0, travel: 0, finished: false };
+              let previous = readAngle(), started;
+              const sample = now => {
+                started ??= now;
+                const angle = readAngle();
+                result.travel += Math.abs(((angle - previous + 540) % 360) - 180);
+                result.frames++; previous = angle;
+                if (now - started < 2100) requestAnimationFrame(sample);
+                else result.finished = true;
+              };
+              requestAnimationFrame(sample);
+            })();
+            """)
+            showPopover()
+            smokeCheckpoint("hidden-refresh-reopened")
+            try await waitForScriptCompletion("__hiddenRefreshRotation")
+            var result = try await evaluateWebContent("window.__hiddenRefreshRotation") as? Object ?? [:]
+            result["backgroundRefreshes"] = interrupt ? 0 : 12
+            result["interrupted"] = interrupt
+            result["interruptedAngle"] = interruptedAngle
+            result["hidden"] = hidden
+            result["heldPastIdleDeadline"] = heldPastIdleDeadline
+            result["samePage"] = web === page
+            result["passed"] = result["finished"] as? Bool == true && (result["frames"] as? Int ?? 0) > 20
+                && (result["travel"] as? Double ?? .infinity) < 1
+                && hidden["visible"] as? Bool == false && hidden["hostUpdates"] as? Int == 0
+                && (!interrupt || interruptedAngle > 1) && web === page
+            return result
         }
-        try await web.widgetEvaluate("""
-        (() => {
-          const logo = document.querySelector('.triangle');
-          const readAngle = () => {
-            const transform = getComputedStyle(logo).transform;
-            const matrix = transform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(transform);
-            return Math.atan2(matrix.b, matrix.a) * 180 / Math.PI;
-          };
-          const result = window.__hiddenRefreshRotation = { frames: 0, travel: 0, finished: false };
-          let previous = readAngle(), started;
-          const sample = now => {
-            started ??= now;
-            const angle = readAngle();
-            result.travel += Math.abs(((angle - previous + 540) % 360) - 180);
-            result.frames++; previous = angle;
-            if (now - started < 2100) requestAnimationFrame(sample);
-            else result.finished = true;
-          };
-          requestAnimationFrame(sample);
-        })();
-        """)
-        showPopover()
-        smokeCheckpoint("hidden-refresh-reopened")
-        try await waitForScriptCompletion("__hiddenRefreshRotation")
-        var result = try await web.widgetEvaluate("window.__hiddenRefreshRotation") as? Object ?? [:]
-        result["backgroundRefreshes"] = interrupt ? 0 : 12
-        result["interrupted"] = interrupt
-        result["interruptedAngle"] = interruptedAngle
-        result["hidden"] = hidden
-        result["passed"] = result["finished"] as? Bool == true && (result["frames"] as? Int ?? 0) > 20
-            && (result["travel"] as? Double ?? .infinity) < 1
-            && hidden["visible"] as? Bool == false && hidden["hostUpdates"] as? Int == 0
-            && (!interrupt || interruptedAngle > 1)
-        return result
     }
     private func verifyViewRotation(action: String, clockwise: Bool) async throws -> Object {
-        try await web.widgetEvaluate("""
+        try await evaluateWebContent("""
         (() => {
           const result = window.__viewRotation = { frames: 0, total: 0, minimumStep: 0, maximumStep: 0, finished: false };
           let previous, started;
@@ -443,7 +482,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         """)
         await store.action(["action": action])
         try await waitForScriptCompletion("__viewRotation")
-        var result = try await web.widgetEvaluate("window.__viewRotation") as? Object ?? [:]
+        var result = try await evaluateWebContent("window.__viewRotation") as? Object ?? [:]
         let total = result["total"] as? Double ?? 0
         result["clockwise"] = clockwise
         result["passed"] = result["finished"] as? Bool == true && (result["frames"] as? Int ?? 0) > 10
@@ -453,6 +492,13 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
     }
     private func verifyIdleWebRelease() async throws -> Object {
         func pause(_ seconds: Double) async throws { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+        @MainActor func waitForRelease() async throws {
+            for _ in 0..<150 {
+                if web == nil { return }
+                try await pause(0.1)
+            }
+            throw WidgetError.message("Idle WebKit did not release within 15 seconds.")
+        }
         @MainActor func reopen() async throws {
             showPopover()
             for _ in 0..<100 { if ready { break }; try await pause(0.05) }
@@ -467,13 +513,13 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         warmPage = nil
         let initialIDs = Set(store.preferences.visible)
         for _ in 0..<12 { await store.action(["action": "addProvider", "provider": "codex"]) }
-        _ = try await web.widgetEvaluate("document.querySelector('[aria-label=\"설정\"]').click()")
+        _ = try await evaluateWebContent("document.querySelector('[aria-label=\"설정\"]').click()")
         try await pause(0.1)
-        _ = try await web.widgetEvaluate("[...document.querySelectorAll('.settings-link')].find(e => e.textContent.includes('계정 관리')).click()")
+        _ = try await evaluateWebContent("[...document.querySelectorAll('.settings-link')].find(e => e.textContent.includes('계정 관리')).click()")
         try await pause(0.1)
-        _ = try await web.widgetEvaluate("document.querySelector('.account-summary').click()")
+        _ = try await evaluateWebContent("document.querySelector('.account-summary').click()")
         try await pause(0.1)
-        _ = try await web.widgetEvaluate("""
+        _ = try await evaluateWebContent("""
         (() => {
           const input = document.getElementById('nickname-codex');
           Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '저장 전 별명');
@@ -482,14 +528,17 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         })();
         """)
         try await pause(0.1)
-        _ = try await web.widgetEvaluate("document.querySelector('.settings-content').scrollTop = 80")
-        let before = try await web.widgetEvaluate("window.aiUsageCaptureUI()") as? Object ?? [:]
+        _ = try await evaluateWebContent("document.querySelector('.settings-content').scrollTop = 80")
+        let before = try await evaluateWebContent("window.aiUsageCaptureUI()") as? Object ?? [:]
         weak var previousPage = web
-        popover.performClose(nil); try await pause(6)
+        popover.performClose(nil); try await waitForRelease()
         let released = web == nil && previousPage == nil
         previousPage = nil
+        var releasedPageRejectsEvaluation = false
+        do { _ = try await evaluateWebContent("1") }
+        catch WebContentError.unavailable { releasedPageRejectsEvaluation = true }
         try await reopen()
-        let restored = try await web.widgetEvaluate("window.aiUsageCaptureUI()") as? Object ?? [:]
+        let restored = try await evaluateWebContent("window.aiUsageCaptureUI()") as? Object ?? [:]
         let draft = (restored["form"] as? Object)?["nickname-codex"] as? Object
         let restoredSettings = restored["menu"] as? Bool == true && restored["menuPage"] as? String == "accounts"
             && restored["expandedAccountId"] as? String == "codex" && draft?["value"] as? String == "저장 전 별명"
@@ -499,26 +548,42 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         let selection = restored["focus"] as? Object
         let focusRestored = selection?["id"] as? String == "nickname-codex" && selection?["start"] as? Int == 2 && selection?["end"] as? Int == 4
         let noImplicitSave = store.preferences.profiles.first { $0.id == "codex" }?.nickname == nil
-        let noReplay = try await web.widgetEvaluate("!document.querySelector('.is-logo-moving')") as? Bool == true
-        _ = try await web.widgetEvaluate("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
+        let noReplay = try await evaluateWebContent("!document.querySelector('.is-logo-moving')") as? Bool == true
+        _ = try await evaluateWebContent("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
         try await pause(0.1)
-        let compactRestored = try await web.widgetEvaluate("document.querySelector('.compact') !== null") as? Bool == true
+        let compactRestored = try await evaluateWebContent("document.querySelector('.compact') !== null") as? Bool == true
         for id in store.preferences.visible where !initialIDs.contains(id) { await store.action(["action": "removeProvider", "provider": id]) }
-        _ = try await web.widgetEvaluate("document.querySelector('[aria-label=\"설정\"]').click()")
+        _ = try await evaluateWebContent("document.querySelector('[aria-label=\"설정\"]').click()")
         try await pause(0.1)
-        _ = try await web.widgetEvaluate("[...document.querySelectorAll('.settings-link')].find(e => e.textContent.includes('사용량 측정')).click()")
+        _ = try await evaluateWebContent("[...document.querySelectorAll('.settings-link')].find(e => e.textContent.includes('사용량 측정')).click()")
         await store.action(["action": "setMeasurementInterval", "minutes": 17])
         try await pause(0.1)
-        popover.performClose(nil); try await pause(6); try await reopen()
-        let measurementRestored = try await web.widgetEvaluate("document.getElementById('settings-title')?.textContent === '사용량 측정' && document.getElementById('measurement-interval')?.value === '17'") as? Bool == true
+        popover.performClose(nil); try await waitForRelease(); try await reopen()
+        let measurementRestored = try await evaluateWebContent("document.getElementById('settings-title')?.textContent === '사용량 측정' && document.getElementById('measurement-interval')?.value === '17'") as? Bool == true
         await store.action(["action": "setMeasurementInterval", "minutes": 30])
-        _ = try await web.widgetEvaluate("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
+        _ = try await evaluateWebContent("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
         let refresh = try await verifyRefreshRotation(activeMilliseconds: 100)
         let direction = try await verifyViewRotation(action: "showFull", clockwise: false)
+        // Simulate lifecycle invalidation while a native async operation still
+        // owns its result. That result must never be applied to a replacement.
+        popover.performClose(nil)
+        var staleResultRejected = false
+        do {
+            _ = try await withWebContent { page in
+                let result = try await page.widgetEvaluate("({fixture: true})")
+                discardWebContent()
+                return result
+            }
+        } catch WebContentError.replacedDuringOperation { staleResultRejected = true }
+        try await reopen()
+        let operationsReleased = webOperationCount == 0
         let passed = quickReopen && released && restoredSettings && noImplicitSave && noReplay && compactRestored
             && scrollRestored && focusRestored && measurementRestored
+            && releasedPageRejectsEvaluation && staleResultRejected && operationsReleased
             && refresh["passed"] as? Bool == true && direction["passed"] as? Bool == true
         return ["passed": passed, "quickReopenReusesPage": quickReopen, "releasedPage": released,
+            "releasedPageRejectsEvaluation": releasedPageRejectsEvaluation,
+            "staleResultRejected": staleResultRejected, "operationsReleased": operationsReleased,
             "restoredSettingsAndDraft": restoredSettings, "noImplicitSave": noImplicitSave,
             "compactModeRestored": compactRestored, "noReplayedTransition": noReplay,
             "scrollRestored": scrollRestored, "focusAndSelectionRestored": focusRestored, "measurementRestored": measurementRestored,
@@ -573,24 +638,22 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         guard smokeDirectory != nil, !smokeStarted else { return }; smokeStarted = true
         Task {
             do {
-                @MainActor func checkpoint(_ phase: String) {
-                    if let smokeDirectory { try? JSON.writeObject(["phase": phase], to: smokeDirectory.appendingPathComponent("progress.json")) }
-                }
+                @MainActor func checkpoint(_ phase: String) { smokeCheckpoint(phase) }
                 checkpoint("show")
                 showPopover()
                 try await Task.sleep(nanoseconds: 1_000_000_000)
-                let first = try await web.widgetEvaluate("({text: document.body.innerText, cards: document.querySelectorAll('.provider').length, platform: !!window.aiUsageNative})") as? Object ?? [:]
+                let first = try await evaluateWebContent("({text: document.body.innerText, cards: document.querySelectorAll('.provider').length, platform: !!window.aiUsageNative})") as? Object ?? [:]
                 let fastRefresh = try await verifyRefreshRotation(activeMilliseconds: 100)
                 checkpoint("fast-refresh-complete")
-                try await web.widgetEvaluate("window.aiUsageNative.motionOverride = true; window.dispatchEvent(new Event('usage-motion'));")
+                try await evaluateWebContent("window.aiUsageNative.motionOverride = true; window.dispatchEvent(new Event('usage-motion'));")
                 try await Task.sleep(nanoseconds: 200_000_000)
                 let reducedRefresh = try await verifyRefreshRotation(activeMilliseconds: 100)
                 let reducedMotionHonored = abs(reducedRefresh["total"] as? Double ?? .infinity) < 1 && reducedRefresh["sawBusy"] as? Bool == true
                     && reducedRefresh["sawSyncing"] as? Bool == false
-                try await web.widgetEvaluate("window.aiUsageNative.motionOverride = false; window.dispatchEvent(new Event('usage-motion'));")
+                try await evaluateWebContent("window.aiUsageNative.motionOverride = false; window.dispatchEvent(new Event('usage-motion'));")
                 try await Task.sleep(nanoseconds: 200_000_000)
                 let compactRotation = try await verifyViewRotation(action: "toggleDetails", clockwise: true)
-                let compact = try await web.widgetEvaluate("document.querySelector('.compact') !== null && !!document.querySelector('.header .refresh') && !document.querySelector('footer')") as? Bool ?? false
+                let compact = try await evaluateWebContent("document.querySelector('.compact') !== null && !!document.querySelector('.header .refresh') && !document.querySelector('footer')") as? Bool ?? false
                 let slowRefresh = try await verifyRefreshRotation(activeMilliseconds: 2400)
                 checkpoint("slow-refresh-complete")
                 let hiddenRefresh = try await verifyHiddenRefreshRotation()
@@ -598,8 +661,8 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                 let reopenedRefresh = try await verifyRefreshRotation(activeMilliseconds: 100, burst: true)
                 let expandedRotation = try await verifyViewRotation(action: "showFull", clockwise: false)
                 checkpoint("rotations-complete")
-                let layout = try await web.widgetEvaluate("({viewport: innerHeight, card: document.querySelector('.widget').getBoundingClientRect().bottom, refreshInHeader: !!document.querySelector('.header .refresh'), footerRemoved: !document.querySelector('footer')})") as? Object ?? [:]
-                let snapshot = try await web.takeSnapshot(configuration: nil)
+                let layout = try await evaluateWebContent("({viewport: innerHeight, card: document.querySelector('.widget').getBoundingClientRect().bottom, refreshInHeader: !!document.querySelector('.header .refresh'), footerRemoved: !document.querySelector('footer')})") as? Object ?? [:]
+                let snapshot = try await withWebContent { page in try await page.takeSnapshot(configuration: nil) }
                 checkpoint("snapshot-complete")
                 if let data = snapshot.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data), let png = bitmap.representation(using: .png, properties: [:]), let folder = smokeDirectory {
                     try JSON.writeData(png, to: folder.appendingPathComponent("menu-bar.png"))
@@ -623,7 +686,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
     }
     private func smokeCheckpoint(_ phase: String) {
         guard let smokeDirectory else { return }
-        let entry: Object = ["phase": phase, "webLoaded": web != nil, "ready": ready,
+        let entry: Object = ["phase": phase, "webLoaded": web != nil, "ready": ready, "webOperations": webOperationCount,
             "visible": popover.isShown, "uptime": ProcessInfo.processInfo.systemUptime]
         try? JSON.writeObject(entry, to: smokeDirectory.appendingPathComponent("progress.json"))
         if let data = try? JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys]) {

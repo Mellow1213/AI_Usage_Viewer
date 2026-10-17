@@ -10,10 +10,20 @@ if [[ ! -d WidgetUI/node_modules/vite ]]; then
   (cd WidgetUI && npm ci --no-audit --no-fund)
 fi
 (cd WidgetUI && npm run build -- --outDir "$build_dir/Web")
-xcrun swiftc -swift-version 5 -O -g -target "$(uname -m)-apple-macos13.0" \
+swift_flags=(-swift-version 5 -O)
+if [[ "${AI_USAGE_DEBUG_SYMBOLS:-0}" == 1 ]]; then
+  swift_flags+=(-g -debug-prefix-map "$project_root=/_/AIUsageWidget")
+fi
+xcrun swiftc "${swift_flags[@]}" -target "$(uname -m)-apple-macos13.0" \
   -module-cache-path "$build_dir/module-cache" \
   -framework AppKit -framework WebKit -framework CryptoKit \
   MacUsageWidget/Sources/*.swift -o "$app_dir/Contents/MacOS/AIUsageWidget"
+if [[ "${AI_USAGE_DEBUG_SYMBOLS:-0}" == 1 ]]; then
+  xcrun dsymutil "$app_dir/Contents/MacOS/AIUsageWidget" -o "$build_dir/AIUsageWidget.dSYM"
+  # Keep symbols in CI diagnostics, outside the distributed app bundle.
+  rm -rf "$app_dir/Contents/MacOS/AIUsageWidget.dSYM"
+  strip -S "$app_dir/Contents/MacOS/AIUsageWidget"
+fi
 cp MacUsageWidget/Info.plist "$app_dir/Contents/Info.plist"
 version="$(sed -nE 's/.*<Version>([^<]+)<\/Version>.*/\1/p' UsageWidget/UsageWidget.csproj)"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]*)?$ ]] || { echo 'Invalid application version' >&2; exit 1; }
