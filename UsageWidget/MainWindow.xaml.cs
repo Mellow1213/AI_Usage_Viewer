@@ -17,6 +17,8 @@ public partial class MainWindow : Window
     private readonly string _widgetUrl;
     private readonly string _dataDirectory;
     private readonly DailyUsageTracker _daily;
+    private readonly UsageHistory _history;
+    private bool _historyVisible;
     private AiAccountPreferences _accountProfiles;
     private readonly Dictionary<string, IAccountSession> _sessions;
     private readonly Func<CodexProfile, CodexClient>? _codexFactory;
@@ -81,6 +83,7 @@ public partial class MainWindow : Window
         _dataDirectory = dataDirectory;
         WidgetStorage.UseDataDirectory(dataDirectory);
         _daily = new(dataDirectory);
+        _history = new(dataDirectory);
         _testMode = testMode;
         _checkUpdatesOnStartup = checkUpdatesOnStartup ?? !testMode;
         _foregroundWindow = foregroundWindow ?? GetForegroundWindow;
@@ -108,6 +111,7 @@ public partial class MainWindow : Window
         };
         SizeChanged += (_, _) => Surface.Clip = new RectangleGeometry(new Rect(0, 0, ActualWidth, ActualHeight), 22, 22);
         Loaded += async (_, _) => await InitializeAsync();
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
         _timer.Tick += async (_, _) =>
         {
             if (_closed || !_ready) return;
@@ -120,6 +124,7 @@ public partial class MainWindow : Window
         Closing += (_, _) =>
         {
             _closed = true;
+            Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
             StopResize();
             _timer.Stop();
             DisposePresence();
@@ -141,6 +146,12 @@ public partial class MainWindow : Window
         var args = Environment.GetCommandLineArgs();
         var index = Array.IndexOf(args, "--data-dir");
         return index >= 0 && index + 1 < args.Length ? Path.GetFullPath(args[index + 1]) : WidgetStorage.DataDirectory;
+    }
+
+    private void OnPowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == Microsoft.Win32.PowerModes.Resume && !_closed)
+            Dispatcher.BeginInvoke(() => { if (!_closed) _history.Interrupt(); });
     }
 
     private async Task InitializeAsync()
@@ -221,6 +232,9 @@ public partial class MainWindow : Window
                     if (!_testMode && _dashboard.ProviderIds.Length > 0) await RefreshAsync();
                     break;
                 case "refresh": await RefreshAsync(true); break;
+                case "setHistoryVisible":
+                    _historyVisible = root.TryGetProperty("visible", out var historyVisible) && historyVisible.ValueKind == JsonValueKind.True;
+                    Publish(); break;
                 case "checkUpdates": await _updates.CheckAsync(); break;
                 case "downloadUpdate": await _updates.DownloadAsync(); break;
                 case "applyUpdate":
@@ -508,10 +522,12 @@ public partial class MainWindow : Window
                 ? $"{account.Source}:{account.Email.ToLowerInvariant()}:{usage.Plan ?? account.Plan}" : null;
         var now = DateTimeOffset.UtcNow;
         var interval = _testMode ? TimeSpan.Zero : TimeSpan.FromMinutes(_measurement.IntervalMinutes);
+        _history.RetainProviders(_dashboard.ProviderIds);
         var providers = _dashboard.ProviderIds.Select(id =>
         {
             var session = _sessions[id];
             var usage = session.Usage with { Id = id, Name = session.Profile.DisplayName, Service = session.Profile.Service, DefaultName = session.Profile.Name };
+            _history.Observe(usage, Identity(session.Account, usage), now);
             return _daily.Observe(usage, Identity(session.Account, usage), now, interval, _measurement.WindowMinutes);
         }).ToArray();
         var payload = JsonSerializer.Serialize(new
@@ -523,6 +539,7 @@ public partial class MainWindow : Window
             logoRotation = _logoRotation, logoRotationStep = _logoRotationStep, anchorCorner = (int)_anchorCorner, lastCardView = (int)_lastCardView,
             measurementIntervalMinutes = _measurement.IntervalMinutes, measurementWindowMinutes = _measurement.WindowMinutes,
             update = _updates.State,
+            history = _historyVisible ? _history.Snapshot(_sessions.Keys) : null,
             maxCardHeight = MaximumCardHeight(), serviceCatalog = AiServices.Catalog,
             accounts = _sessions.Values.Select(session => session.Account with
                 { Name = session.Profile.DisplayName, Service = session.Profile.Service, Enabled = session.Profile.Enabled,

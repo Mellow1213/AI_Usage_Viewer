@@ -21,6 +21,7 @@ CodexClient Client(string name, string mode = "normal") => new(Path.Combine(root
     return info;
 });
 QuotaResetChecks.Run(Path.Combine(root, "quota-resets"), Check);
+UsageHistoryChecks.Run(Path.Combine(root, "usage-history"), Check);
 StorageIsolationChecks.Run(Path.Combine(root, "storage-isolation"), Check);
 async Task Stopped(int pid)
 {

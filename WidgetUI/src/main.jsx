@@ -1,10 +1,12 @@
-import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import { animate, AnimatePresence, motion, useMotionValue, useSpring, useTransform } from 'motion/react';
-import { ArrowDownLeft, ArrowDownRight, ArrowLeft, ArrowUpLeft, ArrowUpRight, ChevronDown, ChevronRight, CirclePlus, Clock3, Command, Grip, Settings, Pin, Plus, Power, RefreshCw, Rows3, LayoutPanelTop, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowDownRight, ArrowLeft, ArrowUpLeft, ArrowUpRight, ChartNoAxesColumn, ChevronDown, ChevronRight, CirclePlus, Clock3, Command, Grip, Settings, Pin, Plus, Power, RefreshCw, Rows3, LayoutPanelTop, Trash2, UserRound, X } from 'lucide-react';
 import './style.css';
 import { UpdateSettings } from './Updates.jsx';
 import { nextDisplayDelay } from './displayClock.js';
+import { UsageHistory } from './UsageHistory.jsx';
+import { previewHistory } from './usageHistory.js';
 
 const native = window.aiUsageNative ?? window.chrome?.webview;
 const send = (action, extra = {}) => native?.postMessage({ action, ...extra });
@@ -380,6 +382,7 @@ function SettingsHome({ state, onNavigate, onQuit }) {
   const sections = [
     ...(state.platform === 'macos' ? [] : [{ page: 'updates', title: '앱 업데이트', label: '앱 업데이트 설정', description: 'GitHub Releases · 확인 · 다운로드 · 재시작', value: state.update?.canApply ? '적용 대기' : state.update?.canDownload ? '새 버전' : `v${state.update?.currentVersion ?? ''}`, Icon: RefreshCw }]),
     { page: 'accounts', title: '계정 관리', description: '추가 · 로그인 · 별명 · 삭제', value: `${managedAccounts(state).length}개 계정`, Icon: UserRound },
+    { page: 'history', title: '사용 기록', description: '일별 · 시간별 · 주별 관측 기록', value: '최근 90일', Icon: ChartNoAxesColumn },
     { page: 'measurement', title: '사용량 측정', description: '관측 사용량 계산 기준', value: `집계 ${measurementLabel(state.measurementIntervalMinutes ?? 30)} · 비교 ${measurementLabel(state.measurementWindowMinutes ?? 30)}`, Icon: Clock3 },
     { page: 'appearance', title: '화면 설정', description: state.platform === 'macos' ? '화면 전환 애니메이션' : '애니메이션 · 창 고정 · 위치', value: state.animateTransitions !== false ? '애니메이션 켜짐' : '애니메이션 꺼짐', Icon: LayoutPanelTop }
   ];
@@ -417,7 +420,7 @@ function AppearanceSettings({ state, onAction }) {
   </div>;
 }
 
-const settingsPages = { settings: '설정', accounts: '계정 관리', providers: '계정 추가', measurement: '사용량 측정', appearance: '화면 설정', updates: '앱 업데이트' };
+const settingsPages = { settings: '설정', accounts: '계정 관리', providers: '계정 추가', history: '사용 기록', measurement: '사용량 측정', appearance: '화면 설정', updates: '앱 업데이트' };
 function SettingsPanel({ page, onBack, onClose, notice, children }) {
   const heading = useRef(null);
   const content = useRef(null);
@@ -437,6 +440,10 @@ function SettingsPanel({ page, onBack, onClose, notice, children }) {
 
 function App() {
   const [state, setState] = useState(latest);
+  const setHistoryVisible = useCallback(visible => {
+    if (native) send('setHistoryVisible', { visible });
+    else setState(state => ({ ...state, history: visible ? (preview ? previewHistory() : { series: [] }) : null }));
+  }, []);
   const menuBar = state.platform === 'macos';
   const [menu, setMenu] = useState(restoredUI?.menu ?? false);
   const [menuPage, setMenuPage] = useState(restoredUI?.menuPage ?? 'settings');
@@ -474,7 +481,7 @@ function App() {
       const focused = document.activeElement;
       const focus = focused?.id ? { id: focused.id,
         ...(Number.isInteger(focused.selectionStart) ? { start: focused.selectionStart, end: focused.selectionEnd } : {}) } : null;
-      return { menu, menuPage, expandedAccountId, pendingAccount: pendingAccount.current, form, scroll, focus };
+      return { menu, menuPage, expandedAccountId, pendingAccount: pendingAccount.current, form, scroll, focus, historyView: window.aiUsageHistoryView };
     };
     return () => { delete window.aiUsageCaptureUI; };
   }, [menu, menuPage, expandedAccountId]);
@@ -609,6 +616,7 @@ function App() {
       {menuPage === 'accounts' ? <Accounts state={state} onAdd={openPicker} onRemove={removeProvider} onRestore={restoreProvider} onRename={renameAccount} expandedId={expandedAccountId} onExpand={setExpandedAccountId} />
         : menuPage === 'providers' ? <ProviderPicker state={state} onAdd={addProvider} />
         : menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} />
+        : menuPage === 'history' ? <UsageHistory history={state.history} accounts={state.accounts ?? []} onVisible={setHistoryVisible} initialView={restoredUI?.historyView} />
         : menuPage === 'appearance' ? <AppearanceSettings state={state} onAction={action} />
         : menuPage === 'updates' && !menuBar ? <UpdateSettings update={state.update} onAction={action} authBusy={state.authBusy} />
         : <SettingsHome state={state} onNavigate={page => page === 'accounts' ? openAccounts() : openSettingsPage(page)} onQuit={() => action('close')} />}

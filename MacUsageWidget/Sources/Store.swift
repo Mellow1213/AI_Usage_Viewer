@@ -9,6 +9,8 @@ import AppKit
     private var clients: [String: AccountClient] = [:]
     private var lastClaudeAttempt: [String: Date] = [:]
     private let tracker: DailyTracker
+    private let history: UsageHistory
+    private var historyVisible = false
     private var timer: Timer?
     private var refreshTask: Task<Void, Never>?
     private var loginTask: Task<Void, Never>?
@@ -27,6 +29,15 @@ import AppKit
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         preferences = JSON.read(root.appendingPathComponent("mac-settings.json"), as: Preferences.self) ?? Preferences()
         preferences.normalize(); tracker = DailyTracker(root: root)
+        if fixture && !FileManager.default.fileExists(atPath: root.appendingPathComponent("usage-history.json").path) {
+            let today = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+            let record = UsageHistory.Series(id: "fixture-history", providerId: "codex", label: "주간", startedAt: today - 6 * 86400,
+                lastObservedAt: today, points: [[today - 4 * 86400 + 43200, 5], [today - 3 * 86400 + 43200, 9]],
+                coverage: [[today - 6 * 86400, today - 5 * 86400], [today - 4 * 86400 + 32400, today - 4 * 86400 + 64800],
+                           [today - 3 * 86400, today - 86400]])
+            try JSON.write([record], to: root.appendingPathComponent("usage-history.json"))
+        }
+        history = UsageHistory(root: root)
         for profile in preferences.profiles { reset(profile) }
         if fixture {
             preferences.visible = ["codex", "claude"]
@@ -132,11 +143,13 @@ import AppKit
         }
     }
     func state(maxHeight: Double) -> Object {
+        history.retainProviders(preferences.visible)
         let providers: [Object] = preferences.visible.compactMap { id in
             guard let profile = preferences.profiles.first(where: { $0.id == id }) else { return nil }
             var usage = usages[id] ?? Usage(id: id); usage.id = id
             let account = accounts[id]
             let identity = account?.status == "connected" ? account?.email.map { "\(account!.source):\($0.lowercased()):\(usage.plan ?? account?.plan ?? "")" } : nil
+            history.observe(usage, identity: identity)
             usage = tracker.observe(usage, identity: identity, interval: preferences.intervalMinutes, window: preferences.windowMinutes)
             var result = usage.object
             result["name"] = profile.displayName; result["defaultName"] = profile.name; result["service"] = profile.service
@@ -147,6 +160,7 @@ import AppKit
             "collapsed": preferences.viewMode == 1, "lastCardView": preferences.viewMode, "transitionPhase": "settled",
             "animateTransitions": preferences.animateTransitions, "logoRotation": logoRotation, "logoRotationStep": logoRotationStep, "maxCardHeight": maxHeight,
             "measurementIntervalMinutes": preferences.intervalMinutes, "measurementWindowMinutes": preferences.windowMinutes,
+            "history": historyVisible ? history.snapshot(providers: preferences.profiles.map(\.id)) : NSNull(),
             "accounts": preferences.profiles.map { profile -> Object in
                 var result = JSON.object(accounts[profile.id] ?? Account(id: profile.id))
                 result["name"] = profile.displayName; result["defaultName"] = profile.name; result["service"] = profile.service
@@ -155,6 +169,7 @@ import AppKit
             "serviceCatalog": [["id": "codex", "name": "Codex", "symbol": "⌘", "description": "ChatGPT 구독 한도 · 자동 조회", "loginName": "ChatGPT"],
                                ["id": "claude", "name": "Claude", "symbol": "✳", "description": "Claude 구독 한도 · 자동 조회", "loginName": "Claude Code"]]]
     }
+    func interruptHistory() { history.interrupt() }
     func action(_ message: Object) async {
         guard let action = message["action"] as? String, !stopped else { return }
         if action == "cancelLogin" {
@@ -164,6 +179,7 @@ import AppKit
         if action == "reopenLogin" { if let id = loginProvider, let url = clients[id]?.loginURL { NSWorkspace.shared.open(url) }; return }
         switch action {
         case "ready": changed?(); start(); return
+        case "setHistoryVisible": historyVisible = message["visible"] as? Bool == true; changed?(); return
         case "toggleLogo", "collapse": hide?(); return
         case "close": NSApplication.shared.terminate(nil); return
         case "toggleMotion": preferences.animateTransitions.toggle()

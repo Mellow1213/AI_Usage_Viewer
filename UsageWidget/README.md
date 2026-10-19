@@ -56,6 +56,7 @@ Velopack SDK와 `vpk`는 1.2.161로 고정합니다. WPF 시작점에서 UI·단
 | `UsageWidget/ClaudeBridge.cs`, `Bridge/claude-statusline.ps1` | Claude 상태줄 설치·복원과 사용량 수신 |
 | `UsageWidget/UsageModels.cs` | 사용량·한도 모델과 서비스 응답 파서 |
 | `UsageWidget/DailyUsageTracker.cs`, `MeasurementPreferences.cs` | 관측 변화 기록, 로컬 집계와 측정 설정 |
+| `UsageWidget/UsageHistory.cs`, `WidgetUI/src/UsageHistory.jsx` | 위젯 집계와 분리된 90일 기록·관측 구간과 선택형 분석 화면 |
 | `UsageWidget/WidgetStorage.cs` | 사용자 데이터 저장과 제한된 오류 로그 |
 | `UsageWidget/WidgetUpdates.cs`, `WidgetUI/src/Updates.jsx` | 업데이트 상태·Velopack 연동과 설정 화면 |
 | `WidgetUI/src/main.jsx`, `style.css` | React 카드·설정 화면과 애니메이션 |
@@ -80,7 +81,8 @@ npm run dev
 UI를 빌드한 다음 저장소 루트에서 실행합니다.
 
 ```powershell
-node --test .\WidgetUI\src\displayClock.test.js
+node --test .\WidgetUI\src\*.test.js
+dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\history-checks --history-only
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\widget-verification
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\performance-checks --performance-checks-only
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\presence-checks --presence-only
@@ -176,6 +178,7 @@ Windows 아이콘은 16~256px의 10개 해상도를 포함하며, 벡터 원본�
 | `connections.json`, `codex-accounts.json` | 이전 버전 연결·계정 메타데이터와의 호환 정보 |
 | `measurement.json` | 집계 주기와 비교 구간 |
 | `daily-usage.json` | 현재 날짜, 계정·플랜의 해시, 한도별 관측 기준·누적 변화량·마지막 집계 상태와 최대 48시간의 관측 변화 기록. 이메일·토큰·대화 내용은 넣지 않습니다. |
+| `usage-history.json` | 최근 90일의 수신 시각별 %p 증가분과 관측 구간. 계정·플랜·한도는 해시로 구분하며 위젯의 초기화 가능한 누적치와 독립적으로 보존합니다. |
 | `Accounts/Codex`, `Accounts/CodexProfiles/<프로필 ID>` | 첫 Codex 계정과 추가 계정별 전용 CLI 홈. 공식 CLI가 인증 상태를 보관·갱신합니다. |
 | `Accounts/Claude`, `Accounts/ClaudeProfiles/<프로필 ID>` | 첫 Claude 계정과 추가 계정별 전용 CLI 설정·인증 상태와 상태줄 연결 파일 |
 | Claude 연결 폴더의 `claude-usage.json` | 두 한도의 사용률·리셋 시각, 수신 시각과 조회 출처. 대화 내용·세션 경로·인증 토큰은 넣지 않습니다. |

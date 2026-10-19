@@ -24,6 +24,7 @@ jobs:
           node-version: '22'
       - run: ./build-widget.ps1 -OutputDirectory artifacts/windows-build
         shell: pwsh
+      - run: npm test --prefix WidgetUI
   macos:
     strategy:
       fail-fast: false

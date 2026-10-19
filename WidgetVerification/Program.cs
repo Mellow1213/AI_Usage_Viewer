@@ -38,7 +38,8 @@ internal static partial class Program
                 else if (args.Contains("--performance-checks-only")) await VerifyPerformanceChangesAsync();
                 else if (args.Contains("--multi-ai-only")) await VerifyMultipleAiAsync();
                 else if (args.Contains("--multi-codex-only")) await VerifyMultipleCodexAsync();
-                else await VerifyAsync(args.Contains("--live"));
+                else if (args.Contains("--history-only")) { UsageHistoryChecks.Run(Path.Combine(_output, "usage-history"), Check); await VerifyUsageHistoryAsync(); }
+                else { await VerifyAsync(args.Contains("--live")); await VerifyUsageHistoryAsync(); }
                 _exitCode = 0;
             }
             catch (Exception ex) { error = ex.ToString(); Console.Error.WriteLine(error); }
@@ -163,6 +164,7 @@ internal static partial class Program
     {
         VerifyDailyUsage();
         QuotaResetChecks.Run(Path.Combine(_output, "quota-resets"), Check);
+        UsageHistoryChecks.Run(Path.Combine(_output, "usage-history"), Check);
         VerifyMeasurementSchedule();
         await VerifyClaudeUsageControlAsync();
         await VerifyAccountsAsync();

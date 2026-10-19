@@ -49,6 +49,7 @@
 | `Sources/App.swift` | 메뉴 막대 아이콘, 팝오버, WebKit 메시지, 표시 상태와 화면 검증 |
 | `Sources/Store.swift` | 계정 목록·동작, 자동 조회, 상태 전달과 보기 전환 방향 |
 | `Sources/Core.swift` | 계정·환경설정·응답 모델, 한도 파서, 관측 집계와 저장 |
+| `Sources/UsageHistory.swift` | 90일 사용 기록, 수신 공백 구분과 Windows 공통 화면 계약 |
 | `Sources/CLI.swift` | CLI 탐색·프로필별 환경·RPC·로그인·Terminal 실행 |
 | `Sources/ClaudeBridge.swift` | 상태줄 설치·복원, 원래 출력 보존, 계정별 캐시 |
 | `Sources/RefreshRotation.swift` | 메뉴 막대 삼각형의 한 바퀴 회전 상태 |
@@ -108,6 +109,7 @@ Claude 사용량은 `initialize`·`get_usage` 제어 요청으로 조회하며 �
 |---|---|
 | `mac-settings.json` | 계정 프로필·표시 순서·별명·연결 방식·보기 모드·전환 효과·집계 설정 |
 | `daily-usage-mac.json` | 계정 식별 해시, 한도별 관측 기준·누적 변화량·집계 상태와 최대 48시간의 변화 기록 |
+| `usage-history.json` | 최근 90일의 관측 소비 증가분과 관측 구간. `설정 → 사용 기록`에서 일별·시간별·주별로 확인 |
 | `Accounts/Codex`, `Accounts/Claude` | 각 서비스 첫 계정의 전용 CLI 홈 |
 | `Accounts/CodexProfiles/<프로필 ID>`, `Accounts/ClaudeProfiles/<프로필 ID>` | 추가 계정별 전용 CLI 홈 |
 | Claude 연결 폴더의 `UsageBridge` 또는 루트의 `SystemClaudeBridge` | 전용 계정 또는 기존 CLI 계정의 상태줄 연결 파일 |

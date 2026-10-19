@@ -73,6 +73,42 @@ import AppKit
         func sample(_ used: Double, _ seconds: Double, reset: Double = 1_800_100_000) -> Usage {
             Usage(id: "codex", status: "ready", windows: [Quota(key: "primary", label: "5시간", usedPercent: used, resetsAt: reset)], updatedAt: now.addingTimeInterval(seconds))
         }
+        let historyRoot = root.appendingPathComponent("usage-history")
+        var history = UsageHistory(root: historyRoot, startedAt: now)
+        func record(_ used: Double, _ seconds: Double, identity: String = "private@example.test") {
+            history.observe(sample(used, seconds), identity: identity, now: now.addingTimeInterval(seconds))
+        }
+        record(20, 0); record(20, 60)
+        try check(history.records[0].points.isEmpty && history.records[0].coverage[0][1] - history.records[0].coverage[0][0] == 60,
+                  "History distinguishes observed zero from missing coverage")
+        record(25, 120); record(24, 180); record(26, 240); record(26, 240)
+        try check(history.records[0].points.reduce(0) { $0 + $1[1] } == 6 && history.records[0].coverage.count == 1,
+                  "History never double-counts corrections or cached samples")
+        record(80, 1200); record(82, 1260); record(0, 1320); record(3, 1380)
+        try check(history.records[0].points.reduce(0) { $0 + $1[1] } == 11 && history.records[0].coverage.count == 3,
+                  "History preserves consumption across reset and leaves long gaps and reset intervals unknown")
+        let covered = history.records[0].coverage.reduce(0) { $0 + $1[1] - $1[0] }
+        history = UsageHistory(root: historyRoot, startedAt: now.addingTimeInterval(1400))
+        record(10, 1440); record(12, 1500)
+        try check(history.records[0].points.reduce(0) { $0 + $1[1] } == 13
+                  && history.records[0].coverage.reduce(0) { $0 + $1[1] - $1[0] } == covered + 60,
+                  "History restarts preserve previous records without covering offline time")
+        history.observe(Usage(id: "codex", status: "error"), identity: "private@example.test", now: now.addingTimeInterval(1510))
+        history.observe(sample(12, 1500), identity: "private@example.test", now: now.addingTimeInterval(1520))
+        record(15, 1560); record(16, 1620); history.retainProviders([], now: now.addingTimeInterval(1660)); record(18, 1680)
+        try check(history.records[0].points.reduce(0) { $0 + $1[1] } == 14, "Connection errors and hidden providers break coverage")
+        record(50, 1740, identity: "other@example.test"); record(52, 1800, identity: "other@example.test")
+        try check(history.records.count == 2 && history.records[1].points[0][1] == 2, "History isolates different account identities")
+        history.interrupt(now: now.addingTimeInterval(1830))
+        history.observe(sample(52, 1800), identity: "other@example.test", now: now.addingTimeInterval(1840))
+        record(54, 1860, identity: "other@example.test"); record(55, 1920, identity: "other@example.test")
+        try check(history.records[1].points.reduce(0) { $0 + $1[1] } == 3, "Wake notifications exclude short sleep intervals and cached pre-wake snapshots")
+        let historyText = try String(contentsOf: historyRoot.appendingPathComponent("usage-history.json"), encoding: .utf8)
+        try check(!historyText.contains("@example.test"), "History never stores email identifiers")
+        let future = now.addingTimeInterval(91 * 86400)
+        history.observe(Usage(id: "codex", status: "ready", windows: [Quota(key: "primary", label: "5시간", usedPercent: 1,
+            resetsAt: future.addingTimeInterval(3600).timeIntervalSince1970)], updatedAt: future), identity: "other@example.test", now: future)
+        try check(history.records.allSatisfy { $0.points.isEmpty && $0.coverage.isEmpty }, "History retention removes records older than 90 days")
         func observe(_ used: Double, _ seconds: Double, reset: Double = 1_800_100_000, identity: String = "account-a") -> Usage {
             tracker.observe(sample(used, seconds, reset: reset), identity: identity, now: now.addingTimeInterval(seconds), interval: 1, window: 30)
         }
