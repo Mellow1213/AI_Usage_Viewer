@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { aggregateHistory, coverageText, formatPoints, historyModes, historyRange } from './usageHistory.js';
 import './usageHistory.css';
@@ -8,6 +8,7 @@ export function UsageHistory({ history, accounts, onVisible, initialView }) {
   const [offset, setOffset] = useState(initialView?.offset ?? 0);
   const [seriesId, setSeriesId] = useState(initialView?.seriesId ?? '');
   const [selected, setSelected] = useState(initialView?.selected ?? null);
+  const chart = useRef(null);
   useEffect(() => { onVisible(true); return () => onVisible(false); }, [onVisible]);
   useEffect(() => {
     window.aiUsageHistoryView = { mode, offset, seriesId, selected };
@@ -19,7 +20,16 @@ export function UsageHistory({ history, accounts, onVisible, initialView }) {
   const now = Date.now();
   const range = historyRange(mode, offset, now);
   const buckets = useMemo(() => aggregateHistory(current, range, now), [current, mode, offset, history]);
-  const active = buckets.find(bucket => bucket.start === selected) ?? buckets.findLast(bucket => bucket.status !== 'future') ?? buckets[0];
+  const active = buckets.find(bucket => bucket.start === selected)
+    ?? (mode === 'hour' ? buckets.findLast(bucket => bucket.points !== null) : null)
+    ?? buckets.findLast(bucket => bucket.status !== 'future') ?? buckets[0];
+  useEffect(() => {
+    if (mode !== 'hour' || !chart.current) return;
+    const column = chart.current.querySelector('.history-column.selected');
+    if (!column) return;
+    const target = column.getBoundingClientRect(), viewport = chart.current.getBoundingClientRect();
+    chart.current.scrollLeft += target.left + target.width / 2 - viewport.left - viewport.width / 2;
+  }, [mode, offset, current?.id, selected]);
   const maximum = Math.max(1, ...buckets.map(bucket => bucket.points ?? 0));
   const total = buckets.reduce((sum, bucket) => sum + (bucket.points ?? 0), 0);
   const hasObservation = buckets.some(bucket => bucket.points !== null);
@@ -43,7 +53,7 @@ export function UsageHistory({ history, accounts, onVisible, initialView }) {
         <span>{range.title}</span><button className="icon-button" aria-label="다음 기간" disabled={offset >= 0} onClick={() => { setOffset(offset + 1); setSelected(null); }}><ChevronRight size={16} /></button></div>
       <div className="history-summary"><span>관측된 소비 합계</span><strong>{hasObservation ? formatPoints(total) : '—'}{hasObservation && <small>%p</small>}</strong><span>{hasObservation ? partial ? '미관측 구간이 포함되어 있어요' : `${current.label} 한도 기준` : '이 기간은 미관측이에요'}</span></div>
       <div className="history-legend"><span><i className="history-observed-key" />관측</span><span><i className="history-partial-key" />일부 관측</span><span><i className="history-missing-key" />미관측</span></div>
-      <div className="history-chart-scroll" role="region" aria-label="사용 기록 그래프" tabIndex={0}>
+      <div className="history-chart-scroll" ref={chart} role="region" aria-label="사용 기록 그래프" tabIndex={0}>
         <div className={`history-chart ${mode === 'hour' ? 'history-hourly' : ''}`} style={{ '--history-columns': buckets.length }}>
           {buckets.map(bucket => <button key={bucket.start} className={`history-column ${bucket.status} ${active?.start === bucket.start ? 'selected' : ''}`}
             disabled={bucket.status === 'future'} aria-pressed={active?.start === bucket.start} onClick={() => setSelected(bucket.start)}

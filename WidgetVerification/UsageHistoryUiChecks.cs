@@ -35,6 +35,7 @@ internal static partial class Program
         await ScriptAsync("[...document.querySelectorAll('.history-modes button')].find(button=>button.textContent==='시간별').click(); document.querySelector('[aria-label=\"이전 기간\"]').click()");
         await Task.Delay(150);
         await AssertScriptAsync("document.querySelectorAll('.history-column').length>=23 && document.querySelector('.history-chart-scroll').scrollWidth>document.querySelector('.history-chart-scroll').clientWidth", "Hourly view provides scrollable calendar-hour buckets and date navigation");
+        await AssertScriptAsync("(()=>{const selected=document.querySelector('.history-column.selected').getBoundingClientRect(), viewport=document.querySelector('.history-chart-scroll').getBoundingClientRect(); return selected.left>=viewport.left-1 && selected.right<=viewport.right+1 && document.querySelector('.history-detail').textContent.includes('관측됨')})()", "Hourly view brings the latest observed hour into view instead of leaving it outside the chart");
         await CaptureAsync("history-hourly.png");
         await ScriptAsync("[...document.querySelectorAll('.history-modes button')].find(button=>button.textContent==='주별').click()");
         await Task.Delay(150);
