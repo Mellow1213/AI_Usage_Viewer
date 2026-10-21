@@ -97,6 +97,8 @@ public partial class MainWindow : Window
         _accountProfiles = AiAccountPreferences.Read(dataDirectory, _connections);
         _sessions = _accountProfiles.Profiles.ToDictionary(profile => profile.Id, CreateSession);
         _dashboard = DashboardPreferences.Read(dataDirectory, _connections);
+        foreach (var session in _sessions.Values.Where(s => _dashboard.ProviderIds.Contains(s.Profile.Id)))
+            BeginAutoConnection(session);
         _measurement = MeasurementPreferences.Read(dataDirectory);
         _updates = updates ?? new WidgetUpdater(dataDirectory);
         _updates.Changed += () => { if (!_closed) Publish(); };
@@ -117,7 +119,7 @@ public partial class MainWindow : Window
             if (_closed || !_ready) return;
             if (!AuthBusy && !_busy)
                 foreach (var session in _sessions.Values.OfType<ClaudeSession>().Where(s => _dashboard.ProviderIds.Contains(s.Profile.Id)))
-                    session.Usage = session.Account.Status == "connected" ? session.ReadSnapshot() with { Id = session.Profile.Id } : NotConnected(session.Profile.Id);
+                    if (session.Account.Status == "connected") session.Usage = session.ReadSnapshot() with { Id = session.Profile.Id };
             Publish();
             if (!_testMode && _dashboard.ProviderIds.Length > 0 && !_busy && !AuthBusy && DateTimeOffset.UtcNow - _lastRefreshAttempt >= TimeSpan.FromSeconds(60)) await RefreshAsync();
         };
@@ -220,7 +222,7 @@ public partial class MainWindow : Window
                     _ready = true;
                     Startup.Visibility = Visibility.Collapsed;
                     Browser.Visibility = Visibility.Visible;
-                    foreach (var session in _sessions.Values) session.Usage = NotConnected(session.Profile.Id);
+                    // A UI handshake must preserve pending connections and already received usage.
                     Publish(force: true);
                     _timer.Start();
                     UpdatePresence();
@@ -368,11 +370,14 @@ public partial class MainWindow : Window
     internal async Task RefreshAsync(bool forceClaude = false)
     {
         if (_busy || _closed || AuthBusy) return;
+        var sessions = _sessions.Values.Where(session => _dashboard.ProviderIds.Contains(session.Profile.Id)).ToArray();
+        // Mark every saved account before publishing, including readers waiting for a concurrency slot.
+        foreach (var session in sessions) BeginAutoConnection(session);
         _busy = true; _lastRefreshAttempt = DateTimeOffset.UtcNow; Publish();
         try
         {
             using var readers = new SemaphoreSlim(3);
-            var tasks = _sessions.Values.Where(session => _dashboard.ProviderIds.Contains(session.Profile.Id))
+            var tasks = sessions
                 .Select(async session =>
                 {
                     await readers.WaitAsync(_lifetime.Token);
@@ -392,7 +397,9 @@ public partial class MainWindow : Window
         try
         {
             var account = (await session.ReadAccountAsync(_lifetime.Token)) with { Id = id };
-            if (!string.Equals(account.Email, session.Account.Email, StringComparison.OrdinalIgnoreCase)) session.Usage = NotConnected(id);
+            if (account.Status == "connected" && (session.Usage.Status == "connecting"
+                || !string.Equals(account.Email, session.Account.Email, StringComparison.OrdinalIgnoreCase)))
+                session.Usage = new(id, "loading", "사용량을 조회하고 있습니다.", []);
             session.Account = account;
             session.Usage = account.Status == "connected"
                 ? (await session.ReadUsageAsync(force, _testMode && _claudeFactory is null && session is ClaudeSession, _lifetime.Token)) with { Id = id }
@@ -406,7 +413,14 @@ public partial class MainWindow : Window
             session.Usage = session.Usage with { Status = "error", Message = ex is FileNotFoundException
                 ? $"{AiServices.Name(session.Profile.Service)} CLI를 설치한 뒤 로그인해주세요." : "조회 실패 · CLI 로그인과 네트워크를 확인해주세요." };
         }
-        finally { session.ReleaseIdleResources(); }
+        finally { session.ReleaseIdleResources(); if (!_closed) Publish(); }
+    }
+
+    private static void BeginAutoConnection(IAccountSession session)
+    {
+        if (!session.Profile.Enabled || session.Account.Status == "connected") return;
+        session.Account = session.Account with { Status = "connecting", Message = "자동 연결 중입니다…" };
+        session.Usage = session.Usage with { Status = "connecting", Message = "자동 연결 중입니다…" };
     }
 
     private IAccountSession CreateSession(AiAccountProfile profile) => profile.Service switch
@@ -602,6 +616,7 @@ public partial class MainWindow : Window
         var dashboard = new DashboardPreferences([.. _dashboard.ProviderIds, id]);
         WidgetStorage.Write(Path.Combine(_dataDirectory, "dashboard.json"), dashboard);
         _dashboard = dashboard;
+        BeginAutoConnection(session);
         Publish();
         if (!_testMode && session.Profile.Enabled) await RefreshAsync();
     }

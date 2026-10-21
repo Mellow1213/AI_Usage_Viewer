@@ -82,6 +82,7 @@ UI를 빌드한 다음 저장소 루트에서 실행합니다.
 
 ```powershell
 node --test .\WidgetUI\src\*.test.js
+dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\connection-checks --connection-only
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\history-checks --history-only
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\widget-verification
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\performance-checks --performance-checks-only
@@ -91,6 +92,8 @@ dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Rel
 ```
 
 단위 테스트는 표시 시각 경계를, 통합 검증은 데이터 파싱·상태줄 복원·계정 격리·계정 삭제·관측 집계·보기 전환 등을 확인합니다. 계정 삭제 검증은 기본·추가·기존 숨김 계정의 태그 제거, 재실행과 이전 형식 복원 시 재등장 방지, 다른 계정과 로그인 파일 보존을 포함합니다. 성능 변경 검증은 동일 상태 전송 생략, 새 데이터 전달, 로고 화면의 시계 해제와 복원을 확인합니다. 결과는 지정한 출력 폴더의 `results.json`에 저장합니다. 기본 검증은 예시 데이터와 별도 Claude 설정 파일을 사용합니다.
+
+자동 연결 검증은 저장된 계정의 첫 화면, 느린 인증·사용량 응답, 계정별 완료 표시, 실제 미연결·오류·재시도와 기존 수신값 보존을 격리된 CLI로 확인합니다.
 
 Codex 프로세스의 종료·재연결·로그인 보존은 Windows UI에 의존하지 않는 동일 C# 소스로도 검증할 수 있습니다. 가짜 CLI와 별도 계정 폴더를 사용합니다.
 

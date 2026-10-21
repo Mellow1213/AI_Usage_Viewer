@@ -39,6 +39,7 @@ import AppKit
         }
         history = UsageHistory(root: root)
         for profile in preferences.profiles { reset(profile) }
+        for profile in preferences.profiles where preferences.visible.contains(profile.id) { beginAutoConnection(profile) }
         if fixture {
             preferences.visible = ["codex", "claude"]
             for profile in preferences.profiles {
@@ -94,12 +95,20 @@ import AppKit
     private func errorMessage(_ error: Error) -> String {
         (error as? WidgetError)?.errorDescription ?? "작업을 완료하지 못했습니다. CLI 설치와 계정 연결을 확인해주세요."
     }
+    private func beginAutoConnection(_ profile: Profile) {
+        guard profile.enabled, accounts[profile.id]?.status != "connected" else { return }
+        accounts[profile.id]?.status = "connecting"
+        accounts[profile.id]?.message = "자동 연결 중입니다…"
+        usages[profile.id]?.status = "connecting"
+        usages[profile.id]?.message = "자동 연결 중입니다…"
+    }
     func refresh(force: Bool = false) async {
         guard !busy, loginProvider == nil, !stopped, !fixture else { return }
+        let profiles = preferences.profiles.filter { preferences.visible.contains($0.id) && $0.enabled }
+        for profile in profiles { beginAutoConnection(profile) }
         busy = true; changed?()
         defer { busy = false; changed?() }
         // Bound subprocess concurrency while letting each account fail independently.
-        let profiles = preferences.profiles.filter { preferences.visible.contains($0.id) && $0.enabled }
         await withTaskGroup(of: Void.self) { group in
             for (index, profile) in profiles.enumerated() {
                 if index >= 3 { await group.next() }
@@ -108,6 +117,7 @@ import AppKit
         }
     }
     private func refresh(_ profile: Profile, force: Bool) async {
+        defer { changed?() }
         do {
             let reader = client(profile)
             defer { reader.releaseIdleResources() }
@@ -119,7 +129,10 @@ import AppKit
                 usages[profile.id] = Usage(id: profile.id, status: account.status, message: account.message ?? "계정을 연결해주세요.")
                 return
             }
-            if oldEmail != account.email { usages[profile.id] = Usage(id: profile.id); lastClaudeAttempt.removeValue(forKey: profile.id) }
+            if oldEmail != account.email || usages[profile.id]?.status == "connecting" {
+                usages[profile.id] = Usage(id: profile.id, status: "loading", message: "사용량을 조회하고 있습니다.")
+                lastClaudeAttempt.removeValue(forKey: profile.id)
+            }
             if profile.service == "claude" {
                 let bridge = ClaudeBridge(profile: profile, root: root)
                 try bridge.bind(account.email?.lowercased() ?? "unknown")
@@ -139,7 +152,7 @@ import AppKit
         catch {
             let message = errorMessage(error)
             usages[profile.id] = Usage(id: profile.id, status: "error", message: message)
-            if accounts[profile.id]?.status != "connected" { accounts[profile.id]?.message = message }
+            if accounts[profile.id]?.status != "connected" { accounts[profile.id]?.status = "error"; accounts[profile.id]?.message = message }
         }
     }
     func state(maxHeight: Double) -> Object {
@@ -213,7 +226,9 @@ import AppKit
                 do { try removeProfile(id); notice = nil }
                 catch { notice = "계정 항목을 삭제하지 못했습니다. 저장 폴더와 Claude 상태줄 설정을 확인해주세요."; changed?(); return }
             case "showProvider":
-                if let id = message["provider"] as? String, preferences.profiles.contains(where: { $0.id == id }), !preferences.visible.contains(id) { preferences.visible.append(id) }
+                if let id = message["provider"] as? String, let profile = preferences.profiles.first(where: { $0.id == id }), !preferences.visible.contains(id) {
+                    preferences.visible.append(id); beginAutoConnection(profile)
+                }
             case "setAccountNickname":
                 if let id = message["accountId"] as? String, let index = preferences.profiles.firstIndex(where: { $0.id == id }), let text = message["nickname"] as? String {
                     let alias = String(text.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(String.init).joined().trimmingCharacters(in: .whitespacesAndNewlines).prefix(24))
@@ -229,7 +244,7 @@ import AppKit
                         guard old.id == old.service else { busy = false; return }
                         if old.service == "claude" { try ClaudeBridge(profile: old, root: root).uninstall() }
                         preferences.profiles[index].useSystem = true; preferences.profiles[index].enabled = true
-                        let profile = preferences.profiles[index]; reset(profile)
+                        let profile = preferences.profiles[index]; reset(profile); beginAutoConnection(profile); changed?()
                         let account = try await client(profile).account(); accounts[id] = account
                         if account.status == "connected", profile.service == "claude" { try ClaudeBridge(profile: profile, root: root).install() }
                         notice = account.status == "connected" ? "기존 CLI 계정을 연결했습니다." : "CLI에서 먼저 로그인한 후 새로고침해주세요."

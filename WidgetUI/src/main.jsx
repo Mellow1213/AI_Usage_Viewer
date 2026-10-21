@@ -233,7 +233,7 @@ function ProviderCard({ provider, account, busy, onConnect, onMeasurements, meas
     initial={reduce ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .45, delay: isClaude ? .08 : 0 }}>
     <div className="provider-head">
       <div className="provider-brand"><span className="provider-symbol">{service?.id === 'codex' ? <Command size={14} aria-hidden="true" /> : service?.symbol ?? '✦'}</span><span className="provider-name" title={[providerName(provider), account?.email].filter(Boolean).join(' · ')}><AccountLabel account={provider} /><PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span></div>
-      <span className={`status-tag ${stale || provider.status === 'error' ? 'muted' : ''}`}><span className="status-dot" />{provider.status === 'ready' ? stale ? '이전 수신값' : '연결됨' : provider.status === 'loading' ? '연결 중' : provider.status === 'error' ? '연결 오류' : provider.status === 'disconnected' ? '로그인 필요' : provider.status === 'signingIn' ? '로그인 중' : '응답 대기'}</span>
+      <span className={`status-tag ${stale || provider.status === 'error' ? 'muted' : ''}`}><span className="status-dot" />{provider.status === 'ready' ? stale ? '이전 수신값' : '연결됨' : provider.status === 'connecting' ? '자동 연결 중' : provider.status === 'loading' ? '연결 중' : provider.status === 'error' ? '연결 오류' : provider.status === 'disconnected' ? '로그인 필요' : provider.status === 'signingIn' ? '로그인 중' : '응답 대기'}</span>
     </div>
     <div className="quota-title"><span>{main ? `${main.label} 잔여량` : '사용량 잔여'} </span><span className="tiny-caption">REMAINING</span></div>
     <div className="quota-value"><span className="number">{available ? <NumberValue value={value} /> : <span className="unavailable">—</span>}</span>{available && <span className="percent">%</span>}<span className="quota-aside">{available ? low ? '조금 남았어요' : '남아 있어요' : busy ? '확인하고 있어요' : '수신을 기다려요'}<ArrowDownRight size={14} /></span></div>
@@ -264,7 +264,7 @@ function CompactProvider({ provider, account, intervalMinutes, onMeasurements })
   return <div className={providerClass(provider)} data-account-id={provider.id}>
     <span className="compact-name" title={[providerName(provider), account?.email].filter(Boolean).join(' · ')}><AccountLabel account={provider} /><PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span>
     <strong>{valid ? <><NumberValue value={main.remainingPercent} /><small>%</small></> : '—'}</strong>
-    <div className="compact-period"><span className="compact-label">{main?.label ?? (claude ? '주간' : '수신 대기')}</span><CompactReset quota={main} label={main?.label ?? (claude ? '주간' : '한도')} now={now} /></div>
+    <div className="compact-period"><span className="compact-label">{provider.status === 'connecting' ? '자동 연결 중' : main?.label ?? (claude ? '주간' : '수신 대기')}</span><CompactReset quota={main} label={main?.label ?? (claude ? '주간' : '한도')} now={now} /></div>
     {claude ? <div className="compact-subquota" aria-label="Claude 5시간 잔여량"><div className="compact-period"><span>5시간</span><CompactReset quota={sub} label="5시간" now={now} /></div><span className="compact-subvalue">{available(sub) ? <><NumberValue value={sub.remainingPercent} />%</> : '—'}</span></div> : <div className="compact-subquota-slot" aria-hidden="true" />}
     <TodayUsage quota={main} available={valid} observedAt={provider.updatedAt} compact intervalMinutes={intervalMinutes} onConfigure={onMeasurements} />
   </div>;
@@ -303,18 +303,20 @@ function Accounts({ state, onAdd, onRemove, onRestore, onRename, expandedId, onE
       const name = providerName(account);
       const visible = state.providers.some(provider => provider.id === account.id);
       const connected = account.status === 'connected';
+      const connecting = account.status === 'connecting';
+      const failed = account.status === 'error';
       const signing = account.status === 'signingIn';
       const expanded = expandedId === account.id || signing;
       return <section className={`account-box managed-account ${providerClass(account)}`} data-account-id={account.id} key={account.id} aria-label={`${name} 계정 관리`}>
         <button className="account-summary" aria-label={`${name} 계정 관리`} aria-expanded={expanded} aria-controls={`account-details-${account.id}`} onClick={() => onExpand(expanded ? null : account.id)}>
-          <span className="account-summary-copy"><strong><AccountLabel account={account} /></strong><small title={account.email}>{account.email ?? (signing ? '로그인 진행 중' : connected ? '로그인된 계정' : '로그인이 필요합니다')}</small></span>
-          <span className={`account-status ${connected ? 'connected' : ''}`}>{!visible ? '숨김' : signing ? '로그인 중' : connected ? '연결됨' : '미연결'}</span><ChevronDown size={13} />
+          <span className="account-summary-copy"><strong><AccountLabel account={account} /></strong><small title={account.email}>{connecting ? '자동 연결 중입니다…' : account.email ?? (signing ? '로그인 진행 중' : connected ? '로그인된 계정' : failed ? '연결 상태를 확인해주세요' : '로그인이 필요합니다')}</small></span>
+          <span className={`account-status ${connected ? 'connected' : ''}`}>{!visible ? '숨김' : connecting ? '자동 연결 중' : signing ? '로그인 중' : connected ? '연결됨' : failed ? '연결 오류' : '미연결'}</span><ChevronDown size={13} />
         </button>
         {expanded && <div className="account-details" id={`account-details-${account.id}`}>
         <h3 className="settings-section-title">로그인</h3>
-        <p className="account-source">{account.source === 'system' ? '기존 CLI 계정과 연결됨' : '이 앱의 전용 계정'}</p>
+        <p className="account-source">{account.source === 'system' ? connecting ? '기존 CLI 계정 확인 중' : '기존 CLI 계정 사용' : '이 앱의 전용 계정'}</p>
         {account.message && <p className="account-message">{account.message}</p>}
-        {signing ? <>
+        {connecting ? null : signing ? <>
           <p>{claude ? '공식 Claude Code 창과 브라우저에서 직접 완료해주세요.' : '브라우저에서 ChatGPT 로그인을 직접 완료해주세요.'}</p>
           <div className="account-buttons"><button className="account-secondary" onClick={() => send('cancelLogin')}>로그인 취소</button>{!claude && <button className="account-secondary" onClick={() => send('reopenLogin')}>브라우저 다시 열기</button>}</div>
         </> : <>

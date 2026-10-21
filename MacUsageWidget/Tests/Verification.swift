@@ -248,7 +248,12 @@ import AppKit
         try fallbackBridge.save(Usage(id: "claude", status: "ready", windows: [Quota(key: "five_hour", label: "5시간", usedPercent: 41)], updatedAt: cachedAt))
         setenv("AI_USAGE_FIXTURE_USAGE_UNAVAILABLE", "1", 1)
         let fallbackStore = try WidgetStore(root: fallbackRoot)
+        try check(fallbackStore.accounts["claude"]?.status == "connecting"
+                  && fallbackStore.usages["claude"]?.message == "자동 연결 중입니다…"
+                  && fallbackStore.accounts["codex"]?.status == "disconnected",
+                  "Saved visible accounts start connecting while unconfigured accounts remain disconnected")
         await fallbackStore.refresh(force: true)
+        try check(fallbackStore.accounts["claude"]?.status == "connected", "Successful startup resolves the automatic connection state")
         try check(fallbackStore.usages["claude"]?.status == "ready" && fallbackStore.usages["claude"]?.windows.first?.usedPercent == 41
                   && fallbackStore.usages["claude"]?.updatedAt == cachedAt, "Unavailable automatic usage preserves the cached quota and original receipt time")
         try FileManager.default.removeItem(at: fallbackBridge.directory.appendingPathComponent("usage-cache.json"))

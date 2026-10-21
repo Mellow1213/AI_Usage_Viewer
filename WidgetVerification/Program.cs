@@ -37,9 +37,10 @@ internal static partial class Program
                 else if (args.Contains("--performance-only")) await MeasurePerformanceAsync();
                 else if (args.Contains("--performance-checks-only")) await VerifyPerformanceChangesAsync();
                 else if (args.Contains("--multi-ai-only")) await VerifyMultipleAiAsync();
+                else if (args.Contains("--connection-only")) await VerifyAutoConnectionAsync();
                 else if (args.Contains("--multi-codex-only")) await VerifyMultipleCodexAsync();
                 else if (args.Contains("--history-only")) { UsageHistoryChecks.Run(Path.Combine(_output, "usage-history"), Check); await VerifyUsageHistoryAsync(); }
-                else { await VerifyAsync(args.Contains("--live")); await VerifyUsageHistoryAsync(); }
+                else { await VerifyAutoConnectionAsync(); await VerifyAsync(args.Contains("--live")); await VerifyUsageHistoryAsync(); }
                 _exitCode = 0;
             }
             catch (Exception ex) { error = ex.ToString(); Console.Error.WriteLine(error); }
@@ -1174,7 +1175,18 @@ internal static partial class Program
                 Directory.CreateDirectory(home);
                 File.WriteAllText(Path.Combine(home, "test-environment.json"), JsonSerializer.Serialize(new { home, apiKeyInherited = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("OPENAI_API_KEY")) }));
             }
-            if (method == "account/read") result = new { account = signedIn ? new { type = "chatgpt", email, planType = "prolite" } : null };
+            if (method is "account/read" or "account/rateLimits/read")
+            {
+                var gate = Path.Combine(home, method == "account/read" ? "fixture-hold-account" : "fixture-hold-usage");
+                var deadline = DateTime.UtcNow.AddSeconds(20);
+                while (File.Exists(gate) && DateTime.UtcNow < deadline) Thread.Sleep(10);
+            }
+            if (method == "account/read")
+            {
+                if (File.Exists(Path.Combine(home, "fixture-fail-account")))
+                { Console.WriteLine(JsonSerializer.Serialize(new { id = number, error = new { code = -1, message = "fixture account error" } })); continue; }
+                result = new { account = signedIn ? new { type = "chatgpt", email, planType = "prolite" } : null };
+            }
             if (method == "account/rateLimits/read")
             {
                 if (File.Exists(Path.Combine(home, "fixture-fail-usage")))
