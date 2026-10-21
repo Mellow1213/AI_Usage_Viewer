@@ -1,0 +1,20 @@
+.recent-trend { display: block; width: 100%; margin-top: 5px; padding: 5px 0 0; border-top: 1px solid #ffffff08; border-radius: 0; background: transparent; color: #85917f; text-align: left; }
+.recent-trend:hover { color: #b6c6ac; }
+.recent-summary { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; font-size: 8px; line-height: 1.5; }
+.recent-title { white-space: nowrap; }
+.recent-trend .recent-total { color: var(--accent, #c4e8a1); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.recent-total small { font-size: 7px; margin-left: 2px; opacity: .65; }
+.recent-chart { display: block; width: 100%; height: 26px; margin-top: 2px; overflow: hidden; }
+.recent-chart rect, .recent-chart circle { fill: var(--accent, #c4e8a1); opacity: .7; }
+.recent-chart .partial rect, .recent-chart .partial circle { opacity: .45; }
+.recent-chart .zero rect { opacity: .4; }
+.recent-chart text { fill: #74806f; font: 8px 'Segoe UI', sans-serif; }
+.recent-axis { display: flex; justify-content: space-between; align-items: baseline; gap: 3px; margin-top: 1px; color: #77816f; font-size: 7px; line-height: 1.4; }
+.recent-coverage { color: #697462; }
+.compact .recent-trend { margin-top: 3px; padding-top: 4px; }
+.compact .recent-chart { height: 22px; }
+.compact .recent-summary { font-size: 7px; }
+.compact .recent-trend .recent-total { font-size: 9px; }
+.compact .recent-total small { font-size: 6px; margin-left: 1px; }
+.compact .claude { --accent: #eebf9e; }
+.compact .recent-axis { font-size: 6px; }

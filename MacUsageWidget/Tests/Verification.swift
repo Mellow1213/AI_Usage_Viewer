@@ -105,6 +105,14 @@ import AppKit
         try check(history.records[1].points.reduce(0) { $0 + $1[1] } == 3, "Wake notifications exclude short sleep intervals and cached pre-wake snapshots")
         let historyText = try String(contentsOf: historyRoot.appendingPathComponent("usage-history.json"), encoding: .utf8)
         try check(!historyText.contains("@example.test"), "History never stores email identifiers")
+        let recent = history.withTrends(sample(55, 1920), identity: "other@example.test", now: now.addingTimeInterval(1920))
+        try check(recent.windows[0].trend?.points.reduce(0) { $0 + $1[1] } == 3
+                  && recent.windows[0].trend?.coverage.count == history.records[1].coverage.count,
+                  "Rolling card payload keeps persisted consumption and original gaps for the current account")
+        try check(history.withTrends(sample(55, 1920), identity: nil, now: now.addingTimeInterval(1920)).windows[0].trend?.points.isEmpty == true,
+                  "An unknown account cannot borrow another account's rolling history")
+        try check(history.withTrends(sample(55, 1920), identity: "other@example.test", now: now.addingTimeInterval(26 * 3600)).windows[0].trend?.points.isEmpty == true,
+                  "Rolling card payload excludes history outside the longest range and clock headroom")
         let future = now.addingTimeInterval(91 * 86400)
         history.observe(Usage(id: "codex", status: "ready", windows: [Quota(key: "primary", label: "5시간", usedPercent: 1,
             resetsAt: future.addingTimeInterval(3600).timeIntervalSince1970)], updatedAt: future), identity: "other@example.test", now: future)

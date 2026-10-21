@@ -542,7 +542,8 @@ public partial class MainWindow : Window
             var session = _sessions[id];
             var usage = session.Usage with { Id = id, Name = session.Profile.DisplayName, Service = session.Profile.Service, DefaultName = session.Profile.Name };
             _history.Observe(usage, Identity(session.Account, usage), now);
-            return _daily.Observe(usage, Identity(session.Account, usage), now, interval, _measurement.WindowMinutes);
+            usage = _daily.Observe(usage, Identity(session.Account, usage), now, interval, _measurement.WindowMinutes);
+            return _history.WithTrends(usage, Identity(session.Account, usage), now);
         }).ToArray();
         var payload = JsonSerializer.Serialize(new
         {

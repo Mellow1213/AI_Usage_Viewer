@@ -42,8 +42,7 @@ final class UsageHistory {
             guard quota.usedPercent.isFinite, quota.usedPercent >= 0, quota.resetsAt == nil || quota.resetsAt! > sample.timeIntervalSince1970 else {
                 baselines.removeValue(forKey: key); continue
             }
-            let identityKey = "\(usage.id)\n\(identity)\n\(quota.key)\n\(quota.label)"
-            let id = SHA256.hash(data: Data(identityKey.utf8)).map { String(format: "%02X", $0) }.joined()
+            let id = seriesId(usage.id, identity: identity, quota: quota)
             var used = min(100, quota.usedPercent)
             let previous = baselines[key]
             if let previous, sample <= previous.at { continue }
@@ -88,6 +87,24 @@ final class UsageHistory {
     func snapshot(providers: [String]) -> Object {
         ["retentionDays": 90, "error": error as Any? ?? NSNull(),
          "series": records.filter { providers.contains($0.providerId) }.map { JSON.object($0) }]
+    }
+    private func seriesId(_ providerId: String, identity: String, quota: Quota) -> String {
+        let key = "\(providerId)\n\(identity)\n\(quota.key)\n\(quota.label)"
+        return SHA256.hash(data: Data(key.utf8)).map { String(format: "%02X", $0) }.joined()
+    }
+    func withTrends(_ usage: Usage, identity: String?, now: Date = Date()) -> Usage {
+        let cutoff = now.addingTimeInterval(-25 * 3600).timeIntervalSince1970
+        var result = usage
+        result.windows = usage.windows.map { quota in
+            let record = identity.flatMap { identity in
+                error == nil ? records.first { $0.id == seriesId(usage.id, identity: identity, quota: quota) } : nil
+            }
+            var output = quota
+            output.trend = UsageTrend(points: record?.points.filter { $0[0] > cutoff } ?? [],
+                                      coverage: record?.coverage.filter { $0[1] > cutoff } ?? [], error: error)
+            return output
+        }
+        return result
     }
     func retainProviders(_ providers: [String], now: Date = Date()) {
         for key in baselines.keys where !providers.contains(String(key.split(separator: ":")[0])) {

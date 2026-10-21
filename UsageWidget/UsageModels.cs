@@ -2,7 +2,9 @@ using System.Text.Json;
 
 namespace UsageWidget;
 
-internal sealed record QuotaWindow(string Key, string Label, double UsedPercent, long? ResetsAt, DailyUsage? Today = null)
+internal sealed record UsageTrend(double[][] Points, double[][] Coverage, string? Error = null);
+
+internal sealed record QuotaWindow(string Key, string Label, double UsedPercent, long? ResetsAt, DailyUsage? Today = null, UsageTrend? Trend = null)
 {
     public double RemainingPercent => Math.Clamp(100 - UsedPercent, 0, 100);
 }

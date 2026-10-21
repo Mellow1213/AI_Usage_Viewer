@@ -33,3 +33,10 @@ test('the earliest provider window wins, including secondary quotas', () => {
 test('future timestamps and already expired quotas cannot spin the clock', () => {
   assert.equal(nextDisplayDelay({ updatedAt: new Date(now + 10000).toISOString(), windows: [{ resetsAt: (now - 10000) / 1000 }] }, now), 60000);
 });
+
+test('rolling totals expire at the selected-window boundary without a new source snapshot', () => {
+  const provider = { windows: [{ trend: { points: [[(now - 30 * 60000 + 1500) / 1000, 3]], coverage: [] } }] };
+  assert.equal(nextDisplayDelay(provider, now, 30), 1501);
+  assert.equal(nextDisplayDelay(provider, now, 60), Math.min(60000, 60000 - now % 60000 + 1));
+  assert.equal(nextDisplayDelay({ windows: [{ trend: { points: [], coverage: [] } }] }, now, 30), null);
+});

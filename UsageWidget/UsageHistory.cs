@@ -70,7 +70,7 @@ internal sealed class UsageHistory
             var key = prefix + quota.Key;
             if (!double.IsFinite(quota.UsedPercent) || quota.UsedPercent < 0 || quota.ResetsAt <= sample.ToUnixTimeSeconds())
             { _baselines.Remove(key); continue; }
-            var id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{usage.Id}\n{identity}\n{quota.Key}\n{quota.Label}")));
+            var id = SeriesId(usage.Id, identity, quota);
             var used = Math.Clamp(quota.UsedPercent, 0, 100);
             _baselines.TryGetValue(key, out var previous);
             if (previous is not null && sample <= previous.At) continue; // Never turn cached data into coverage.
@@ -124,6 +124,22 @@ internal sealed class UsageHistory
         retentionDays = RetentionDays, error = _error,
         series = _series.Where(s => providers.Contains(s.ProviderId)).ToArray()
     };
+    private static string SeriesId(string providerId, string identity, QuotaWindow quota) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{providerId}\n{identity}\n{quota.Key}\n{quota.Label}")));
+
+    internal ProviderUsage WithTrends(ProviderUsage usage, string? identity, DateTimeOffset now)
+    {
+        // Bound the card payload to the longest rolling window plus one hour of clock headroom.
+        // Keep original span endpoints so identical snapshots do not trigger new UI messages every tick.
+        var cutoff = now.AddHours(-25).ToUnixTimeMilliseconds() / 1000d;
+        return usage with { Windows = usage.Windows.Select(quota =>
+        {
+            var series = identity is null || _error is not null ? null : _series.FirstOrDefault(s => s.Id == SeriesId(usage.Id, identity, quota));
+            return quota with { Trend = new UsageTrend(
+                series?.Points.Where(p => p[0] > cutoff).Select(p => p.ToArray()).ToArray() ?? [],
+                series?.Coverage.Where(c => c[1] > cutoff).Select(c => c.ToArray()).ToArray() ?? [], _error) };
+        }).ToArray() };
+    }
     internal IReadOnlyList<Series> Records => _series;
     internal void RetainProviders(IEnumerable<string> providers, DateTimeOffset? now = null)
     {

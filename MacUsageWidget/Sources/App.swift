@@ -634,6 +634,28 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             NSApp.terminate(nil)
         }
     }
+    private func verifyRecentTrends() async throws -> Bool {
+        let data = try JSONSerialization.data(withJSONObject: store.state(maxHeight: maxHeight))
+        let state = String(decoding: data, as: UTF8.self)
+        try await evaluateWebContent("""
+        window.__recentOriginal = \(state);
+        const received = Date.now() / 1000;
+        window.__recentFixture = { ...window.__recentOriginal, measurementWindowMinutes: 30,
+          providers: window.__recentOriginal.providers.map(provider => ({ ...provider,
+            windows: provider.windows.map(quota => ({ ...quota, trend: provider.id === 'codex'
+              ? { points: [[received-2400,5],[received-300,2]], coverage: [[received-3000,received-2400],[received-600,received-60]] }
+              : { points: [], coverage: [] } })) })) };
+        window.aiUsageReceive(window.__recentFixture);
+        """)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let halfHour = try await evaluateWebContent("document.querySelector('.codex .recent-trend').dataset.total==='2' && document.querySelector('.claude .recent-trend').dataset.total==='' && document.querySelectorAll('.claude .recent-chart rect').length===0") as? Bool == true
+        try await evaluateWebContent("window.aiUsageReceive({...window.__recentFixture, measurementWindowMinutes:60})")
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let hour = try await evaluateWebContent("document.querySelector('.codex .recent-trend').dataset.total==='7' && document.querySelectorAll('.codex .recent-bucket').length<24 && Math.abs(+document.querySelector('.codex .recent-trend').dataset.end-Date.now())<1000 && document.documentElement.scrollWidth<=innerWidth") as? Bool == true
+        publish(force: true)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        return halfHour && hour
+    }
     private func verifyHistoryScreen() async throws -> Bool {
         try await evaluateWebContent("document.querySelector('[aria-label=\"설정\"]').click()")
         try await Task.sleep(nanoseconds: 150_000_000)
@@ -683,17 +705,19 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                     try JSON.writeData(png, to: folder.appendingPathComponent("menu-bar.png"))
                 }
                 let cardFits = (layout["card"] as? Double ?? .infinity) <= (layout["viewport"] as? Double ?? 0) + 2
+                let trendsPassed = try await verifyRecentTrends()
+                checkpoint("trends-complete")
                 let historyPassed = try await verifyHistoryScreen()
                 checkpoint("history-complete")
                 let memory = CommandLine.arguments.contains("--verify-memory") ? try await verifyIdleWebRelease() : ["passed": true, "skipped": true]
                 checkpoint("memory-complete")
-                let passed = historyPassed && reducedMotionHonored && memory["passed"] as? Bool == true && first["platform"] as? Bool == true && (first["cards"] as? Int ?? 0) == 2 && compact && cardFits
+                let passed = historyPassed && trendsPassed && reducedMotionHonored && memory["passed"] as? Bool == true && first["platform"] as? Bool == true && (first["cards"] as? Int ?? 0) == 2 && compact && cardFits
                     && layout["refreshInHeader"] as? Bool == true && layout["footerRemoved"] as? Bool == true
                     && fastRefresh["passed"] as? Bool == true && slowRefresh["passed"] as? Bool == true
                     && hiddenRefresh["passed"] as? Bool == true
                     && interruptedRefresh["passed"] as? Bool == true && reopenedRefresh["passed"] as? Bool == true
                     && compactRotation["passed"] as? Bool == true && expandedRotation["passed"] as? Bool == true
-                finishSmoke(["passed": passed, "historyPassed": historyPassed, "readyHandshake": ready, "statusItem": item.button != nil,
+                finishSmoke(["passed": passed, "historyPassed": historyPassed, "trendsPassed": trendsPassed, "readyHandshake": ready, "statusItem": item.button != nil,
                              "renderedCards": first["cards"] ?? 0, "compactMode": compact, "cardFits": cardFits, "layout": layout, "memory": memory,
                              "fastRefresh": fastRefresh, "reducedMotionHonored": reducedMotionHonored, "slowRefresh": slowRefresh, "hiddenRefresh": hiddenRefresh,
                              "compactRotation": compactRotation, "expandedRotation": expandedRotation,

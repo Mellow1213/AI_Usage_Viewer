@@ -38,9 +38,10 @@ internal static partial class Program
                 else if (args.Contains("--performance-checks-only")) await VerifyPerformanceChangesAsync();
                 else if (args.Contains("--multi-ai-only")) await VerifyMultipleAiAsync();
                 else if (args.Contains("--connection-only")) await VerifyAutoConnectionAsync();
+                else if (args.Contains("--trend-only")) { UsageHistoryChecks.Run(Path.Combine(_output, "usage-history"), Check); await VerifyRecentUsageAsync(); }
                 else if (args.Contains("--multi-codex-only")) await VerifyMultipleCodexAsync();
                 else if (args.Contains("--history-only")) { UsageHistoryChecks.Run(Path.Combine(_output, "usage-history"), Check); await VerifyUsageHistoryAsync(); }
-                else { await VerifyAutoConnectionAsync(); await VerifyAsync(args.Contains("--live")); await VerifyUsageHistoryAsync(); }
+                else { await VerifyAutoConnectionAsync(); await VerifyRecentUsageAsync(); await VerifyAsync(args.Contains("--live")); await VerifyUsageHistoryAsync(); }
                 _exitCode = 0;
             }
             catch (Exception ex) { error = ex.ToString(); Console.Error.WriteLine(error); }

@@ -164,6 +164,7 @@ import AppKit
             let identity = account?.status == "connected" ? account?.email.map { "\(account!.source):\($0.lowercased()):\(usage.plan ?? account?.plan ?? "")" } : nil
             history.observe(usage, identity: identity)
             usage = tracker.observe(usage, identity: identity, interval: preferences.intervalMinutes, window: preferences.windowMinutes)
+            usage = history.withTrends(usage, identity: identity)
             var result = usage.object
             result["name"] = profile.displayName; result["defaultName"] = profile.name; result["service"] = profile.service
             return result

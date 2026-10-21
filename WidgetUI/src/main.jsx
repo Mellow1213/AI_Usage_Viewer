@@ -7,6 +7,7 @@ import { UpdateSettings } from './Updates.jsx';
 import { nextDisplayDelay } from './displayClock.js';
 import { UsageHistory } from './UsageHistory.jsx';
 import { previewHistory } from './usageHistory.js';
+import { RecentUsage } from './RecentUsage.jsx';
 
 const native = window.aiUsageNative ?? window.chrome?.webview;
 const send = (action, extra = {}) => native?.postMessage({ action, ...extra });
@@ -46,6 +47,10 @@ const previewState = { ...initial, busy: false, accounts: initial.accounts.map(a
   { id: 'codex', status: 'ready', message: '계정 사용량', updatedAt: new Date().toISOString(), windows: [{ key: 'primary', label: '주간', usedPercent: 8, remainingPercent: 92, resetsAt: Date.now() / 1000 + 273000 }] },
   { id: 'claude', status: 'ready', message: 'Claude Code에서 수신', updatedAt: new Date().toISOString(), windows: [{ key: 'five_hour', label: '5시간', usedPercent: 36, remainingPercent: 64, resetsAt: Date.now() / 1000 + 8280 }, { key: 'seven_day', label: '주간', usedPercent: 62, remainingPercent: 38, resetsAt: Date.now() / 1000 + 180000 }] }
 ] };
+if (preview) for (const provider of previewState.providers) for (const quota of provider.windows) {
+  const at = minutes => Date.now() / 1000 + minutes * 60;
+  quota.trend = { points: [[at(-24), 2], [at(-12), 1], [at(-4), 3]], coverage: [[at(-30), at(-18)], [at(-15), at(-2)]] };
+}
 const restoredUI = native?.uiState;
 const restoredForm = { ...restoredUI?.form };
 function takeFormDraft(id, saved) {
@@ -170,8 +175,9 @@ function QuotaMeter({ quota, value, available, label, small = false }) {
   </div>;
 }
 
-function TodayUsage({ quota, available, observedAt, compact = false, intervalMinutes = 30, onConfigure }) {
-  if (!available || !quota?.today) return null;
+function TodayUsage({ quota, available, observedAt, compact = false, intervalMinutes = 30, windowMinutes = 30, now, onConfigure }) {
+  if (!quota) return null;
+  if (!available || !quota.today) return <RecentUsage quota={quota} minutes={windowMinutes} now={now} compact={compact} onConfigure={onConfigure} />;
   const points = quota.today.usedPercentagePoints;
   // The visible clock follows the latest received quota snapshot, independently of aggregation.
   const observationAt = observedAt ?? quota.today.sourceAt;
@@ -179,17 +185,14 @@ function TodayUsage({ quota, available, observedAt, compact = false, intervalMin
   const since = new Date(quota.today.observedSince).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   const measured = new Date(quota.today.measuredAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
   const received = new Date(quota.today.sourceAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
-  const recent = quota.today.recentPercentagePoints;
   const format = value => `${value > 0 ? '−' : ''}${value.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}`;
   return <div className="observed-usage"><button className="today-usage" aria-label="관측 측정 설정" onClick={onConfigure}
     title={`마지막 사용량 수신 ${time}. ${since}부터 관측한 ${quota.label} 한도 변화량입니다. 한도 초기화 또는 날짜 변경 시 누적 소모량을 새로 집계합니다. 집계 ${measured}, 집계에 반영된 수신 ${received}, 갱신 주기 ${measurementLabel(intervalMinutes)}. 하루 전체 사용량이나 토큰 수가 아니며, 수신되지 않은 소비와 초기화 사이의 사용은 빠질 수 있습니다. 클릭해서 측정 설정을 변경하세요.`}>
     <span><time dateTime={observationAt}>{time}</time>관측 {!compact && <span className="today-basis">· {quota.label}</span>}<span className="measurement-chip">{measurementLabel(intervalMinutes)}</span></span><span className="today-amount">{quota.today.isCurrentDay ? <>{format(points)}<small>%p</small></> : '집계 대기'}</span>
-  </button><button className="today-usage recent-usage" onClick={onConfigure} title={`마지막 집계(${measured}) 시점의 최근 ${measurementLabel(quota.today.windowMinutes)} 소비량입니다. 한도 초기화 시 이전 소비 기록도 지웁니다. 변화량을 수신한 시각을 기준으로 계산하며, 아직 쌓이지 않은 구간은 복원할 수 없습니다.`}>
-    <span>최근 {measurementLabel(quota.today.windowMinutes)} 관측</span><span className="today-amount">{format(recent)}<small>%p</small></span>
-  </button></div>;
+  </button><RecentUsage quota={quota} minutes={windowMinutes} now={now} compact={compact} onConfigure={onConfigure} /></div>;
 }
 
-function useProviderClock(provider) {
+function useProviderClock(provider, windowMinutes = 30) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     let timer;
@@ -197,7 +200,7 @@ function useProviderClock(provider) {
       clearTimeout(timer);
       const current = Date.now();
       setNow(current);
-      const delay = nextDisplayDelay(provider, current);
+      const delay = nextDisplayDelay(provider, current, windowMinutes);
       if (delay !== null) timer = setTimeout(tick, delay);
     };
     // A newly received snapshot and a restored card update immediately. Cards
@@ -211,12 +214,12 @@ function useProviderClock(provider) {
       window.removeEventListener('focus', tick);
       document.removeEventListener('visibilitychange', resume);
     };
-  }, [provider]);
+  }, [provider, windowMinutes]);
   return now;
 }
 
-function ProviderCard({ provider, account, busy, onConnect, onMeasurements, measurementInterval, services = catalog }) {
-  const now = useProviderClock(provider);
+function ProviderCard({ provider, account, busy, onConnect, onMeasurements, measurementInterval, measurementWindow, services = catalog }) {
+  const now = useProviderClock(provider, measurementWindow);
   const reduce = useReducedMotion();
   const isClaude = serviceOf(provider) === 'claude';
   const service = services.find(item => item.id === serviceOf(provider));
@@ -238,11 +241,11 @@ function ProviderCard({ provider, account, busy, onConnect, onMeasurements, meas
     <div className="quota-title"><span>{main ? `${main.label} 잔여량` : '사용량 잔여'} </span><span className="tiny-caption">REMAINING</span></div>
     <div className="quota-value"><span className="number">{available ? <NumberValue value={value} /> : <span className="unavailable">—</span>}</span>{available && <span className="percent">%</span>}<span className="quota-aside">{available ? low ? '조금 남았어요' : '남아 있어요' : busy ? '확인하고 있어요' : '수신을 기다려요'}<ArrowDownRight size={14} /></span></div>
     <QuotaMeter key={`${main?.key}:${main?.resetsAt}:${main?.label}:${account?.email}:${provider.plan ?? account?.plan}`} quota={main} value={value} available={available} label={`${provider.id} ${main?.label ?? ''} 잔여량`} />
-    <TodayUsage quota={main} available={available} observedAt={provider.updatedAt} intervalMinutes={measurementInterval} onConfigure={onMeasurements} />
+    <TodayUsage quota={main} available={available} observedAt={provider.updatedAt} intervalMinutes={measurementInterval} windowMinutes={measurementWindow} now={now} onConfigure={onMeasurements} />
     <div className="reset"><Clock3 size={11} /><span>{main ? remainingTime(main.resetsAt, now) : provider.message}</span></div>
     {extra.map(w => {
       const old = w.resetsAt && w.resetsAt * 1000 <= now;
-      return <div className="secondary" key={w.key}><div><span>{w.label} 잔여</span><span>{old ? '확인 필요' : <><NumberValue value={w.remainingPercent} />%</>}</span></div><QuotaMeter key={`${w.resetsAt}:${w.label}:${account?.email}:${provider.plan ?? account?.plan}`} small quota={w} value={old ? 0 : w.remainingPercent} available={!old} label={`${provider.id} ${w.label} 잔여량`} /><TodayUsage quota={w} available={!old} observedAt={provider.updatedAt} intervalMinutes={measurementInterval} onConfigure={onMeasurements} /><div className="secondary-reset"><Clock3 size={11} /><span>{remainingTime(w.resetsAt, now)}</span></div></div>;
+      return <div className="secondary" key={w.key}><div><span>{w.label} 잔여</span><span>{old ? '확인 필요' : <><NumberValue value={w.remainingPercent} />%</>}</span></div><QuotaMeter key={`${w.resetsAt}:${w.label}:${account?.email}:${provider.plan ?? account?.plan}`} small quota={w} value={old ? 0 : w.remainingPercent} available={!old} label={`${provider.id} ${w.label} 잔여량`} /><TodayUsage quota={w} available={!old} observedAt={provider.updatedAt} intervalMinutes={measurementInterval} windowMinutes={measurementWindow} now={now} onConfigure={onMeasurements} /><div className="secondary-reset"><Clock3 size={11} /><span>{remainingTime(w.resetsAt, now)}</span></div></div>;
     })}
     {!isClaude && provider.status === 'error' && <p className="provider-note">{provider.message}</p>}
     {['disconnected', 'signingIn'].includes(provider.status) && <button className="connect" onClick={onConnect}><UserRound size={12} />{provider.status === 'signingIn' ? '로그인 진행 상태' : `${service?.loginName ?? service?.name ?? 'AI'} 계정 연결`}<ArrowUpRight size={12} /></button>}
@@ -250,8 +253,8 @@ function ProviderCard({ provider, account, busy, onConnect, onMeasurements, meas
   </motion.section>;
 }
 
-function CompactProvider({ provider, account, intervalMinutes, onMeasurements }) {
-  const now = useProviderClock(provider);
+function CompactProvider({ provider, account, intervalMinutes, windowMinutes, onMeasurements }) {
+  const now = useProviderClock(provider, windowMinutes);
   const claude = serviceOf(provider) === 'claude';
   const windows = provider.windows ?? [];
   // Compact Claude prioritizes the weekly pool. Keep the 5h quota separate
@@ -266,7 +269,7 @@ function CompactProvider({ provider, account, intervalMinutes, onMeasurements })
     <strong>{valid ? <><NumberValue value={main.remainingPercent} /><small>%</small></> : '—'}</strong>
     <div className="compact-period"><span className="compact-label">{provider.status === 'connecting' ? '자동 연결 중' : main?.label ?? (claude ? '주간' : '수신 대기')}</span><CompactReset quota={main} label={main?.label ?? (claude ? '주간' : '한도')} now={now} /></div>
     {claude ? <div className="compact-subquota" aria-label="Claude 5시간 잔여량"><div className="compact-period"><span>5시간</span><CompactReset quota={sub} label="5시간" now={now} /></div><span className="compact-subvalue">{available(sub) ? <><NumberValue value={sub.remainingPercent} />%</> : '—'}</span></div> : <div className="compact-subquota-slot" aria-hidden="true" />}
-    <TodayUsage quota={main} available={valid} observedAt={provider.updatedAt} compact intervalMinutes={intervalMinutes} onConfigure={onMeasurements} />
+    <TodayUsage quota={main} available={valid} observedAt={provider.updatedAt} compact intervalMinutes={intervalMinutes} windowMinutes={windowMinutes} now={now} onConfigure={onMeasurements} />
   </div>;
 }
 
@@ -366,7 +369,7 @@ function MeasurementSettings({ state, onChange }) {
   return <div className="measurement-settings">
     <section>
       <div className="measurement-heading"><h3><label htmlFor="measurement-interval">집계 주기</label></h3><output htmlFor="measurement-interval">{measurementLabel(draft)}</output></div>
-      <p>오늘 누적치와 최근 소비량을 갱신하는 간격</p>
+      <p>오늘 관측 누적치를 갱신하는 간격</p>
       {/* Preview while dragging; persist only on release or keyboard completion. */}
       <input id="measurement-interval" className="measurement-slider" type="range" min="1" max="180" step="1" value={draft} data-saved-value={interval}
         aria-label="집계 주기 슬라이더" aria-valuetext={measurementLabel(draft)} style={{ '--range-progress': `${(draft - 1) / 179 * 100}%` }}
@@ -375,8 +378,8 @@ function MeasurementSettings({ state, onChange }) {
       <div className="measurement-range-labels"><span>1m</span><span>3h</span></div>
       <div className="measurement-options interval-options">{intervalOptions.map(minutes => <button key={minutes} aria-label={`집계 주기 ${measurementLabel(minutes)}`} aria-pressed={draft === minutes} className={draft === minutes ? 'selected' : ''} onClick={() => commit(minutes)}>{measurementLabel(minutes)}</button>)}</div>
     </section>
-    <section><h3>비교 구간</h3><p>마지막 집계 시각부터 거슬러 볼 소비량 범위</p><div className="measurement-options">{measurementOptions.map(option => <button key={option.minutes} aria-label={`비교 구간 ${option.label}`} aria-pressed={(state.measurementWindowMinutes ?? 30) === option.minutes} className={(state.measurementWindowMinutes ?? 30) === option.minutes ? 'selected' : ''} onClick={() => onChange('window', option.minutes)}>{option.label}</button>)}</div></section>
-    <p className="measurement-hint">집계 주기는 1분~3시간, 1분 단위로 설정합니다. 잔여량 조회는 기존대로 유지되며 새 수신값이 있어야 집계됩니다.</p>
+    <section><h3>비교 구간</h3><p>현재 시각부터 거슬러 본 총소비량과 추이 · 변경 즉시 계산</p><div className="measurement-options">{measurementOptions.map(option => <button key={option.minutes} aria-label={`비교 구간 ${option.label}`} aria-pressed={(state.measurementWindowMinutes ?? 30) === option.minutes} className={(state.measurementWindowMinutes ?? 30) === option.minutes ? 'selected' : ''} onClick={() => onChange('window', option.minutes)}>{option.label}</button>)}</div></section>
+    <p className="measurement-hint">집계 주기는 1분~3시간, 1분 단위입니다. 비교 구간은 저장된 시계열 기록으로 즉시 계산하며, 기록 없는 구간은 그래프를 비워둡니다. 잔여량 조회 주기는 그대로입니다.</p>
   </div>;
 }
 
@@ -634,9 +637,9 @@ function App() {
       </div>
     </header>
       {state.providers.length === 0 ? <EmptyDashboard onAdd={openPicker} /> : mode === 1 ? <motion.div key="compact" className="compact" data-count={state.providers.length} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : .14 }}>
-        {state.providers.map(p => <CompactProvider key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} intervalMinutes={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} />)}
+        {state.providers.map(p => <CompactProvider key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} intervalMinutes={state.measurementIntervalMinutes ?? 30} windowMinutes={state.measurementWindowMinutes ?? 30} onMeasurements={openMeasurements} />)}
       </motion.div> : <motion.main key="expanded" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : .14 }}>
-        <div className="cards">{state.providers.map(p => <ProviderCard key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} busy={state.busy} onConnect={() => openAccounts(p.id)} measurementInterval={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} services={state.serviceCatalog ?? catalog} />)}</div>
+        <div className="cards">{state.providers.map(p => <ProviderCard key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} busy={state.busy} onConnect={() => openAccounts(p.id)} measurementInterval={state.measurementIntervalMinutes ?? 30} measurementWindow={state.measurementWindowMinutes ?? 30} onMeasurements={openMeasurements} services={state.serviceCatalog ?? catalog} />)}</div>
       </motion.main>}
     {!menuBar && <footer><span className="footer-status"><span className={`pulse-dot ${state.busy || state.authBusy ? 'working' : ''}`} />{state.authBusy ? '로그인 완료 대기 중' : state.busy ? '사용량 업데이트 중' : state.pinned ? '항상 위에 고정됨' : '고정 해제됨'}</span>{refreshButton}</footer>}
     </>}
