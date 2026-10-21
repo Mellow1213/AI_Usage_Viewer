@@ -372,7 +372,8 @@ internal static partial class Program
         await AssertScriptAsync("window.logoSamples.every(sample=>sample.visible!==1||sample.peakOpacity>.95)", "Logo handoff waits for the incoming card fade instead of briefly dimming its logo");
         await AssertScriptAsync("(()=>{const angles=window.logoSamples.filter(sample=>sample.angle!==null).map(sample=>sample.angle);return angles.length>3&&Math.max(...angles)>100&&Math.max(...angles)<=120.1&&angles.every((angle,index)=>index===0||angle>=angles[index-1]-.1);})()", "Transition rotates only 120 degrees with easing and no restart or reversal");
         await AssertScriptAsync("document.querySelector('.drag-zone .triangle').style.transform.includes('rotate(120deg)')", "Static logo preserves the completed 120-degree orientation without snapping back");
-        Check(_window.ActualHeight < 250, "Collapse shrinks the actual native window");
+        var compactHeight = _window.ActualHeight;
+        Check(_window.ViewMode == WidgetViewMode.Compact && compactHeight < fullHeight, "Collapse shrinks the actual native window while fitting the trend graph");
         await AssertScriptAsync("document.querySelector('.compact .claude > strong').textContent === '38%' && document.querySelector('.compact .claude .compact-label').textContent === '주간' && document.querySelector('.compact .claude .compact-subvalue').textContent === '64%' && document.querySelectorAll('.compact .claude .compact-reset').length === 2 && [...document.querySelectorAll('.compact .claude .compact-reset')].every(n=>n.textContent.trim()!== '—' && n.title.includes('다음 리셋')) && document.querySelector('.widget').getBoundingClientRect().height <= innerHeight + 2 && document.querySelector('.compact .claude').scrollWidth <= document.querySelector('.compact .claude').clientWidth", "Compact Claude shows weekly and five-hour quotas with reset countdowns and exact-time tooltips without clipping");
         await CaptureAsync("compact.png");
         await AssertScriptAsync($"(()=>{{const time=document.querySelector('.compact .codex .observed-usage > .today-usage time');return time&&new Date(time.dateTime).getTime()==={reducedDamage.UpdatedAt!.Value.ToUnixTimeMilliseconds()};}})()",
@@ -453,7 +454,7 @@ internal static partial class Program
         await Task.Delay(150);
         await ScriptAsync("document.querySelector('[aria-label=\"간략히 보기\"]').click()");
         await Task.Delay(100);
-        Check(!_window.IsResizing && _window.ActualHeight < 250, "Widget motion toggle skips native fold animation");
+        Check(!_window.IsResizing && Math.Abs(_window.ActualHeight - compactHeight) < 3, "Widget motion toggle skips native fold animation and reaches the measured compact height");
         await ScriptAsync("document.querySelector('[aria-label=\"자세히 보기\"]').click()");
         await Task.Delay(250);
         await ScriptAsync("window.chrome.webview.postMessage({action:'toggleMotion'})");
