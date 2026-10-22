@@ -4,10 +4,10 @@ import { animate, AnimatePresence, motion, useMotionValue, useSpring, useTransfo
 import { ArrowDownLeft, ArrowDownRight, ArrowLeft, ArrowUpLeft, ArrowUpRight, ChartNoAxesColumn, ChevronDown, ChevronRight, CirclePlus, Clock3, Command, Grip, Settings, Pin, Plus, Power, RefreshCw, Rows3, LayoutPanelTop, Trash2, UserRound, X } from 'lucide-react';
 import './style.css';
 import { UpdateSettings } from './Updates.jsx';
-import { nextDisplayDelay } from './displayClock.js';
+import { useProviderClock } from './useProviderClock.js';
 import { UsageHistory } from './UsageHistory.jsx';
 import { previewHistory } from './usageHistory.js';
-import { RecentUsage } from './RecentUsage.jsx';
+import { UsageTrends } from './UsageTrends.jsx';
 
 const native = window.aiUsageNative ?? window.chrome?.webview;
 const send = (action, extra = {}) => native?.postMessage({ action, ...extra });
@@ -43,13 +43,17 @@ const measurementLabel = minutes => measurementOptions.find(option => option.min
   ?? (minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`);
 // Browser preview is explicitly labelled; the desktop app never uses example values.
 const preview = new URLSearchParams(location.search).get('preview') === '1';
+const previewTrends = preview && new URLSearchParams(location.search).get('view') === 'trends';
 const previewState = { ...initial, busy: false, accounts: initial.accounts.map(account => ({ ...account, status: 'connected' })), providers: [
   { id: 'codex', status: 'ready', message: '계정 사용량', updatedAt: new Date().toISOString(), windows: [{ key: 'primary', label: '주간', usedPercent: 8, remainingPercent: 92, resetsAt: Date.now() / 1000 + 273000 }] },
   { id: 'claude', status: 'ready', message: 'Claude Code에서 수신', updatedAt: new Date().toISOString(), windows: [{ key: 'five_hour', label: '5시간', usedPercent: 36, remainingPercent: 64, resetsAt: Date.now() / 1000 + 8280 }, { key: 'seven_day', label: '주간', usedPercent: 62, remainingPercent: 38, resetsAt: Date.now() / 1000 + 180000 }] }
 ] };
 if (preview) for (const provider of previewState.providers) for (const quota of provider.windows) {
   const at = minutes => Date.now() / 1000 + minutes * 60;
-  quota.trend = { points: [[at(-24), 2], [at(-12), 1], [at(-4), 3]], coverage: [[at(-30), at(-18)], [at(-15), at(-2)]] };
+  quota.trend = provider.id === 'codex' ? {
+    points: [[-1250, 2], [-1220, 1], [-1160, 4], [-860, 2], [-840, 3], [-560, 1], [-535, 4], [-310, 2], [-295, 1], [-210, 3], [-165, 1], [-140, 2], [-125, 1], [-102, 3], [-92, 2], [-70, 3], [-40, 5], [-24, 2], [-12, 1], [-4, 3]].map(([minute, value]) => [at(minute), value]),
+    coverage: [[-1260, -1150], [-890, -825], [-580, -510], [-330, -285], [-220, -200], [-175, -120], [-110, -88], [-80, -65], [-50, -35], [-30, -18], [-15, -2]].map(([a, b]) => [at(a), at(b)])
+  } : quota.key === 'five_hour' ? { points: [], coverage: [[at(-120), at(0)]] } : { points: [], coverage: [] };
 }
 const restoredUI = native?.uiState;
 const restoredForm = { ...restoredUI?.form };
@@ -175,9 +179,8 @@ function QuotaMeter({ quota, value, available, label, small = false }) {
   </div>;
 }
 
-function TodayUsage({ quota, available, observedAt, compact = false, intervalMinutes = 30, windowMinutes = 30, now, onConfigure }) {
-  if (!quota) return null;
-  if (!available || !quota.today) return <RecentUsage quota={quota} minutes={windowMinutes} now={now} compact={compact} onConfigure={onConfigure} />;
+function TodayUsage({ quota, available, observedAt, compact = false, intervalMinutes = 30, onConfigure }) {
+  if (!available || !quota?.today) return null;
   const points = quota.today.usedPercentagePoints;
   // The visible clock follows the latest received quota snapshot, independently of aggregation.
   const observationAt = observedAt ?? quota.today.sourceAt;
@@ -189,33 +192,7 @@ function TodayUsage({ quota, available, observedAt, compact = false, intervalMin
   return <div className="observed-usage"><button className="today-usage" aria-label="관측 측정 설정" onClick={onConfigure}
     title={`마지막 사용량 수신 ${time}. ${since}부터 관측한 ${quota.label} 한도 변화량입니다. 한도 초기화 또는 날짜 변경 시 누적 소모량을 새로 집계합니다. 집계 ${measured}, 집계에 반영된 수신 ${received}, 갱신 주기 ${measurementLabel(intervalMinutes)}. 하루 전체 사용량이나 토큰 수가 아니며, 수신되지 않은 소비와 초기화 사이의 사용은 빠질 수 있습니다. 클릭해서 측정 설정을 변경하세요.`}>
     <span><time dateTime={observationAt}>{time}</time>관측 {!compact && <span className="today-basis">· {quota.label}</span>}<span className="measurement-chip">{measurementLabel(intervalMinutes)}</span></span><span className="today-amount">{quota.today.isCurrentDay ? <>{format(points)}<small>%p</small></> : '집계 대기'}</span>
-  </button><RecentUsage quota={quota} minutes={windowMinutes} now={now} compact={compact} onConfigure={onConfigure} /></div>;
-}
-
-function useProviderClock(provider, windowMinutes = 30) {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    let timer;
-    const tick = () => {
-      clearTimeout(timer);
-      const current = Date.now();
-      setNow(current);
-      const delay = nextDisplayDelay(provider, current, windowMinutes);
-      if (delay !== null) timer = setTimeout(tick, delay);
-    };
-    // A newly received snapshot and a restored card update immediately. Cards
-    // unmount in logo mode, so that mode has no receipt/countdown clock at all.
-    tick();
-    window.addEventListener('focus', tick);
-    const resume = () => { if (!document.hidden) { clearTimeout(timer); tick(); } };
-    document.addEventListener('visibilitychange', resume);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('focus', tick);
-      document.removeEventListener('visibilitychange', resume);
-    };
-  }, [provider, windowMinutes]);
-  return now;
+  </button></div>;
 }
 
 function ProviderCard({ provider, account, busy, onConnect, onMeasurements, measurementInterval, measurementWindow, services = catalog }) {
@@ -241,11 +218,11 @@ function ProviderCard({ provider, account, busy, onConnect, onMeasurements, meas
     <div className="quota-title"><span>{main ? `${main.label} 잔여량` : '사용량 잔여'} </span><span className="tiny-caption">REMAINING</span></div>
     <div className="quota-value"><span className="number">{available ? <NumberValue value={value} /> : <span className="unavailable">—</span>}</span>{available && <span className="percent">%</span>}<span className="quota-aside">{available ? low ? '조금 남았어요' : '남아 있어요' : busy ? '확인하고 있어요' : '수신을 기다려요'}<ArrowDownRight size={14} /></span></div>
     <QuotaMeter key={`${main?.key}:${main?.resetsAt}:${main?.label}:${account?.email}:${provider.plan ?? account?.plan}`} quota={main} value={value} available={available} label={`${provider.id} ${main?.label ?? ''} 잔여량`} />
-    <TodayUsage quota={main} available={available} observedAt={provider.updatedAt} intervalMinutes={measurementInterval} windowMinutes={measurementWindow} now={now} onConfigure={onMeasurements} />
+    <TodayUsage quota={main} available={available} observedAt={provider.updatedAt} intervalMinutes={measurementInterval} onConfigure={onMeasurements} />
     <div className="reset"><Clock3 size={11} /><span>{main ? remainingTime(main.resetsAt, now) : provider.message}</span></div>
     {extra.map(w => {
       const old = w.resetsAt && w.resetsAt * 1000 <= now;
-      return <div className="secondary" key={w.key}><div><span>{w.label} 잔여</span><span>{old ? '확인 필요' : <><NumberValue value={w.remainingPercent} />%</>}</span></div><QuotaMeter key={`${w.resetsAt}:${w.label}:${account?.email}:${provider.plan ?? account?.plan}`} small quota={w} value={old ? 0 : w.remainingPercent} available={!old} label={`${provider.id} ${w.label} 잔여량`} /><TodayUsage quota={w} available={!old} observedAt={provider.updatedAt} intervalMinutes={measurementInterval} windowMinutes={measurementWindow} now={now} onConfigure={onMeasurements} /><div className="secondary-reset"><Clock3 size={11} /><span>{remainingTime(w.resetsAt, now)}</span></div></div>;
+      return <div className="secondary" key={w.key}><div><span>{w.label} 잔여</span><span>{old ? '확인 필요' : <><NumberValue value={w.remainingPercent} />%</>}</span></div><QuotaMeter key={`${w.resetsAt}:${w.label}:${account?.email}:${provider.plan ?? account?.plan}`} small quota={w} value={old ? 0 : w.remainingPercent} available={!old} label={`${provider.id} ${w.label} 잔여량`} /><TodayUsage quota={w} available={!old} observedAt={provider.updatedAt} intervalMinutes={measurementInterval} onConfigure={onMeasurements} /><div className="secondary-reset"><Clock3 size={11} /><span>{remainingTime(w.resetsAt, now)}</span></div></div>;
     })}
     {!isClaude && provider.status === 'error' && <p className="provider-note">{provider.message}</p>}
     {['disconnected', 'signingIn'].includes(provider.status) && <button className="connect" onClick={onConnect}><UserRound size={12} />{provider.status === 'signingIn' ? '로그인 진행 상태' : `${service?.loginName ?? service?.name ?? 'AI'} 계정 연결`}<ArrowUpRight size={12} /></button>}
@@ -269,7 +246,7 @@ function CompactProvider({ provider, account, intervalMinutes, windowMinutes, on
     <strong>{valid ? <><NumberValue value={main.remainingPercent} /><small>%</small></> : '—'}</strong>
     <div className="compact-period"><span className="compact-label">{provider.status === 'connecting' ? '자동 연결 중' : main?.label ?? (claude ? '주간' : '수신 대기')}</span><CompactReset quota={main} label={main?.label ?? (claude ? '주간' : '한도')} now={now} /></div>
     {claude ? <div className="compact-subquota" aria-label="Claude 5시간 잔여량"><div className="compact-period"><span>5시간</span><CompactReset quota={sub} label="5시간" now={now} /></div><span className="compact-subvalue">{available(sub) ? <><NumberValue value={sub.remainingPercent} />%</> : '—'}</span></div> : <div className="compact-subquota-slot" aria-hidden="true" />}
-    <TodayUsage quota={main} available={valid} observedAt={provider.updatedAt} compact intervalMinutes={intervalMinutes} windowMinutes={windowMinutes} now={now} onConfigure={onMeasurements} />
+    <TodayUsage quota={main} available={valid} observedAt={provider.updatedAt} compact intervalMinutes={intervalMinutes} onConfigure={onMeasurements} />
   </div>;
 }
 
@@ -353,7 +330,7 @@ function ProviderPicker({ state, onAdd }) {
   </div>;
 }
 
-function MeasurementSettings({ state, onChange }) {
+function MeasurementSettings({ state, onChange, onTrends }) {
   const interval = state.measurementIntervalMinutes ?? 30;
   const [draft, setDraft] = useState(() => Number(takeFormDraft('measurement-interval', interval)));
   const committed = useRef(interval);
@@ -379,7 +356,8 @@ function MeasurementSettings({ state, onChange }) {
       <div className="measurement-options interval-options">{intervalOptions.map(minutes => <button key={minutes} aria-label={`집계 주기 ${measurementLabel(minutes)}`} aria-pressed={draft === minutes} className={draft === minutes ? 'selected' : ''} onClick={() => commit(minutes)}>{measurementLabel(minutes)}</button>)}</div>
     </section>
     <section><h3>비교 구간</h3><p>현재 시각부터 거슬러 본 총소비량과 추이 · 변경 즉시 계산</p><div className="measurement-options">{measurementOptions.map(option => <button key={option.minutes} aria-label={`비교 구간 ${option.label}`} aria-pressed={(state.measurementWindowMinutes ?? 30) === option.minutes} className={(state.measurementWindowMinutes ?? 30) === option.minutes ? 'selected' : ''} onClick={() => onChange('window', option.minutes)}>{option.label}</button>)}</div></section>
-    <p className="measurement-hint">집계 주기는 1분~3시간, 1분 단위입니다. 비교 구간은 저장된 시계열 기록으로 즉시 계산하며, 기록 없는 구간은 그래프를 비워둡니다. 잔여량 조회 주기는 그대로입니다.</p>
+    <button className="account-secondary trend-open" onClick={onTrends}>사용량 추이 보기<ChevronRight size={13} /></button>
+    <p className="measurement-hint">집계 주기는 1분~3시간, 1분 단위입니다. 비교 구간의 총소비량과 그래프는 별도의 사용량 추이 화면에서 확인합니다. 잔여량 조회 주기는 그대로입니다.</p>
   </div>;
 }
 
@@ -388,6 +366,7 @@ function SettingsHome({ state, onNavigate, onQuit }) {
     ...(state.platform === 'macos' ? [] : [{ page: 'updates', title: '앱 업데이트', label: '앱 업데이트 설정', description: 'GitHub Releases · 확인 · 다운로드 · 재시작', value: state.update?.canApply ? '적용 대기' : state.update?.canDownload ? '새 버전' : `v${state.update?.currentVersion ?? ''}`, Icon: RefreshCw }]),
     { page: 'accounts', title: '계정 관리', description: '추가 · 로그인 · 별명 · 삭제', value: `${managedAccounts(state).length}개 계정`, Icon: UserRound },
     { page: 'history', title: '사용 기록', description: '일별 · 시간별 · 주별 관측 기록', value: '최근 90일', Icon: ChartNoAxesColumn },
+    { page: 'trends', title: '사용량 추이', description: '선택 구간의 총소비량 · 그래프', value: `최근 ${measurementLabel(state.measurementWindowMinutes ?? 30)}`, Icon: Rows3 },
     { page: 'measurement', title: '사용량 측정', description: '관측 사용량 계산 기준', value: `집계 ${measurementLabel(state.measurementIntervalMinutes ?? 30)} · 비교 ${measurementLabel(state.measurementWindowMinutes ?? 30)}`, Icon: Clock3 },
     { page: 'appearance', title: '화면 설정', description: state.platform === 'macos' ? '화면 전환 애니메이션' : '애니메이션 · 창 고정 · 위치', value: state.animateTransitions !== false ? '애니메이션 켜짐' : '애니메이션 꺼짐', Icon: LayoutPanelTop }
   ];
@@ -425,7 +404,7 @@ function AppearanceSettings({ state, onAction }) {
   </div>;
 }
 
-const settingsPages = { settings: '설정', accounts: '계정 관리', providers: '계정 추가', history: '사용 기록', measurement: '사용량 측정', appearance: '화면 설정', updates: '앱 업데이트' };
+const settingsPages = { settings: '설정', accounts: '계정 관리', providers: '계정 추가', trends: '사용량 추이', history: '사용 기록', measurement: '사용량 측정', appearance: '화면 설정', updates: '앱 업데이트' };
 function SettingsPanel({ page, onBack, onClose, notice, children }) {
   const heading = useRef(null);
   const content = useRef(null);
@@ -445,13 +424,14 @@ function SettingsPanel({ page, onBack, onClose, notice, children }) {
 
 function App() {
   const [state, setState] = useState(latest);
+  const setTrendsVisible = useCallback(visible => { if (native) send('setTrendsVisible', { visible }); }, []);
   const setHistoryVisible = useCallback(visible => {
     if (native) send('setHistoryVisible', { visible });
     else setState(state => ({ ...state, history: visible ? (preview ? previewHistory() : { series: [] }) : null }));
   }, []);
   const menuBar = state.platform === 'macos';
-  const [menu, setMenu] = useState(restoredUI?.menu ?? false);
-  const [menuPage, setMenuPage] = useState(restoredUI?.menuPage ?? 'settings');
+  const [menu, setMenu] = useState(restoredUI?.menu ?? previewTrends);
+  const [menuPage, setMenuPage] = useState(restoredUI?.menuPage ?? (previewTrends ? 'trends' : 'settings'));
   const [expandedAccountId, setExpandedAccountId] = useState(restoredUI?.expandedAccountId ?? null);
   const pendingAccount = useRef(restoredUI?.pendingAccount ?? null);
   const reduce = useReducedMotion();
@@ -486,7 +466,7 @@ function App() {
       const focused = document.activeElement;
       const focus = focused?.id ? { id: focused.id,
         ...(Number.isInteger(focused.selectionStart) ? { start: focused.selectionStart, end: focused.selectionEnd } : {}) } : null;
-      return { menu, menuPage, expandedAccountId, pendingAccount: pendingAccount.current, form, scroll, focus, historyView: window.aiUsageHistoryView };
+      return { menu, menuPage, expandedAccountId, pendingAccount: pendingAccount.current, form, scroll, focus, historyView: window.aiUsageHistoryView, trendView: window.aiUsageTrendView };
     };
     return () => { delete window.aiUsageCaptureUI; };
   }, [menu, menuPage, expandedAccountId]);
@@ -620,7 +600,8 @@ function App() {
     {menu ? <SettingsPanel page={menuPage} onBack={() => setMenuPage(menuPage === 'providers' ? 'accounts' : 'settings')} onClose={() => setMenu(false)} notice={state.notice}>
       {menuPage === 'accounts' ? <Accounts state={state} onAdd={openPicker} onRemove={removeProvider} onRestore={restoreProvider} onRename={renameAccount} expandedId={expandedAccountId} onExpand={setExpandedAccountId} />
         : menuPage === 'providers' ? <ProviderPicker state={state} onAdd={addProvider} />
-        : menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} />
+        : menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} onTrends={() => openSettingsPage('trends')} />
+        : menuPage === 'trends' ? <UsageTrends providers={state.providers} options={measurementOptions} windowMinutes={state.measurementWindowMinutes ?? 30} onWindow={minutes => changeMeasurement('window', minutes)} onVisible={setTrendsVisible} sourceLabel={providerName} initialView={restoredUI?.trendView} />
         : menuPage === 'history' ? <UsageHistory history={state.history} accounts={state.accounts ?? []} onVisible={setHistoryVisible} initialView={restoredUI?.historyView} />
         : menuPage === 'appearance' ? <AppearanceSettings state={state} onAction={action} />
         : menuPage === 'updates' && !menuBar ? <UpdateSettings update={state.update} onAction={action} authBusy={state.authBusy} />

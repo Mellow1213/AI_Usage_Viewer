@@ -1,6 +1,6 @@
 # Windows 개발 안내
 
-이 문서는 Windows WPF + WebView2 호스트의 빌드·구현·검증을 다룹니다. 설치·화면 조작·업데이트는 [Windows 사용 안내](../README.md#windows-버전), 공통 기능은 [루트 README](../README.md)를 참고하세요. macOS의 Swift + WebKit 호스트는 [macOS 개발 안내](../MacUsageWidget/README.md)에 분리했습니다.
+이 문서는 Windows WPF + WebView2 호스트의 빌드·구현·검증을 다룹니다. 설치·화면 조작·업데이트는 [Windows 사용 안내](../README.md#설치와-실행), 공통 기능은 [루트 README](../README.md)를 참고하세요. 현재 빌드·검증·배포 대상은 Windows x64입니다.
 
 ## 개발 환경과 빌드
 
@@ -74,7 +74,9 @@ npm run dev
 
 개발 서버는 `127.0.0.1`에 바인딩합니다. 출력된 URL에 `?preview=1`을 붙이면 예시 데이터라는 표시가 있는 디자인 미리보기를 볼 수 있습니다. 실제 계정 연결은 데스크톱 앱에서 처리합니다. 예시 값은 데스크톱 앱의 실제 수신값을 대체하지 않습니다.
 
-네이티브 앱은 빌드된 UI를 `https://widget.local/index.html`로 매핑하고 WebView2 메시지로 상태와 사용자 동작을 전달합니다. 공통 React UI는 macOS에서도 사용하며, 호스트가 전달한 `platform: "macos"`에 따라 상단 새로고침과 메뉴 막대용 조작을 표시합니다. Windows UI 변경을 실행본에 반영하려면 저장소 루트에서 `build-widget.ps1`로 다시 빌드합니다. macOS 빌드는 Windows의 `Release`를 갱신하지 않습니다.
+`?preview=1&view=trends`는 별도 사용량 추이 화면을 바로 엽니다. 예시 계정의 Codex 주간은 소비·관측된 0·미관측이 섞인 기록, Claude 5시간은 소비 0의 관측 기록, Claude 주간은 기록 없음으로 구성되어 있어 세 상태를 직접 비교할 수 있습니다.
+
+네이티브 앱은 빌드된 UI를 `https://widget.local/index.html`로 매핑하고 WebView2 메시지로 상태와 사용자 동작을 전달합니다. React UI 변경을 실행본에 반영하려면 저장소 루트에서 `build-dev-widget.ps1`로 개발판을 다시 빌드합니다. CI와 릴리스도 Windows x64만 대상으로 합니다.
 
 ## 검증
 
@@ -82,6 +84,7 @@ UI를 빌드한 다음 저장소 루트에서 실행합니다.
 
 ```powershell
 node --test .\WidgetUI\src\*.test.js
+.\WidgetVerification\ReleasePipelineChecks.ps1
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\connection-checks --connection-only
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\trend-checks --trend-only
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\history-checks --history-only
@@ -94,9 +97,11 @@ dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Rel
 
 단위 테스트는 표시 시각 경계를, 통합 검증은 데이터 파싱·상태줄 복원·계정 격리·계정 삭제·관측 집계·보기 전환 등을 확인합니다. 계정 삭제 검증은 기본·추가·기존 숨김 계정의 태그 제거, 재실행과 이전 형식 복원 시 재등장 방지, 다른 계정과 로그인 파일 보존을 포함합니다. 성능 변경 검증은 동일 상태 전송 생략, 새 데이터 전달, 로고 화면의 시계 해제와 복원을 확인합니다. 결과는 지정한 출력 폴더의 `results.json`에 저장합니다. 기본 검증은 예시 데이터와 별도 Claude 설정 파일을 사용합니다.
 
+`ReleasePipelineChecks.ps1`은 복사한 배포 스크립트를 격리된 예시 패키지와 모의 Git·GitHub·dotnet 명령으로 실행합니다. Windows 파일만으로 게시·익명 확인 흐름이 진행되는지, 커밋 불일치·로컬 패키지 손상·업로드 해시 불일치를 거부하는지 확인합니다. 네트워크 요청이나 실제 릴리스 게시는 하지 않습니다. `Desktop verification` CI도 Windows에서 이 검사를 실행합니다.
+
 자동 연결 검증은 저장된 계정의 첫 화면, 느린 인증·사용량 응답, 계정별 완료 표시, 실제 미연결·오류·재시도와 기존 수신값 보존을 격리된 CLI로 확인합니다.
 
-비교 구간 검증은 현재 시각 기준의 즉시 재계산, 기록 공백과 관측된 0의 구분, 계정·한도별 격리, 상세·간략 그래프의 배치와 새 메시지 없이 기록이 범위를 벗어나는 처리를 확인합니다. 카드에는 현재 계정·한도의 최대 비교 구간에 필요한 시계열만 전달하며, 전체 90일 기록은 사용 기록 화면에서 요청합니다. 비교 합계는 일일 집계 주기와 독립적으로 클라이언트의 표시 시계에서 계산합니다.
+비교 구간 검증은 별도 `사용량 추이` 옵션 화면의 현재 시각 기준 재계산, 기록 공백과 관측된 0의 구분, 계정·한도 선택과 새 메시지 없이 기록이 범위를 벗어나는 처리를 확인합니다. 시간·소비량 눈금, 마우스 클릭 고정·해제, 키보드 구간 이동과 미관측·관측된 0의 상세 표시도 확인합니다. 상세·간략 카드에는 추이와 총소비량을 표시하지 않습니다. 옵션 화면의 열기·닫기에 따라 최근 시계열 전달을 켜고 끄며, 전체 90일 기록은 사용 기록 화면에서 요청합니다. 비교 합계는 일일 집계 주기와 독립적으로 클라이언트의 표시 시계에서 계산합니다.
 
 Codex 프로세스의 종료·재연결·로그인 보존은 Windows UI에 의존하지 않는 동일 C# 소스로도 검증할 수 있습니다. 가짜 CLI와 별도 계정 폴더를 사용합니다.
 

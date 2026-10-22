@@ -461,8 +461,10 @@ internal static partial class Program
         await Task.Delay(150);
         await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
         await Task.Delay(350);
-        await AssertScriptAsync("document.querySelector('.menu').getBoundingClientRect().bottom < innerHeight", "Settings menu fits the window");
+        await WaitAsync(() => !_window.IsResizing, "Settings window resize settled");
         await CaptureAsync("settings.png");
+        File.WriteAllText(Path.Combine(_output, "settings-layout.json"), await ScriptAsync("({menu:document.querySelector('.menu').getBoundingClientRect().bottom,height:innerHeight,root:document.querySelector('.widget').getBoundingClientRect().height,max:getComputedStyle(document.querySelector('.widget')).getPropertyValue('--card-max-height')})"));
+        await AssertScriptAsync("document.querySelector('.menu').getBoundingClientRect().bottom < innerHeight", "Settings menu fits the window");
         await ScriptAsync("document.querySelector('[aria-label=\"화면 설정\"]').click()");
         await Task.Delay(250);
         await AssertScriptAsync("document.querySelectorAll('.dock-option').length===4 && document.querySelectorAll('.dock-option[aria-pressed=\"true\"]').length===1", "Settings offers all four screen corners with the current anchor selected");

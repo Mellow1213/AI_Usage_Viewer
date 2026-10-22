@@ -1,45 +1,18 @@
-# macOS 개발 안내
+# 과거 macOS 구현 기록
 
-이 문서는 Swift + AppKit + WebKit 호스트의 빌드·구현·검증을 다룹니다. 설치·메뉴 막대 조작·업데이트는 [macOS 사용 안내](../README.md#macos-버전), 계정·관측 사용량의 공통 설명은 [루트 README](../README.md)를 참고하세요. Windows WPF + WebView2 호스트는 [Windows 개발 안내](../UsageWidget/README.md)에 분리했습니다.
+Mac 빌드·CI·신규 배포는 중단했습니다. 루트의 `build-macos.sh`와 `run-macos.command`는 제거했고, `MacUsageWidget` 소스와 아래 내용은 이전 구현을 참고하기 위한 기록으로 보관합니다. 현재 React UI와 이 호스트의 호환성은 검증하지 않습니다. 현행 빌드·릴리스는 [Windows 개발 안내](../UsageWidget/README.md)와 [배포 가이드](../docs/releasing.md)를 따릅니다.
 
-## 개발 환경과 빌드
-
-| 항목 | 요구 사항 |
-|---|---|
-| 운영체제 | macOS 13 이상 |
-| 네이티브 도구 | Xcode Command Line Tools: `xcode-select --install` |
-| UI 도구 | npm과 Node.js `^20.19.0 \|\| >=22.12.0` |
-| 실제 계정 조회 | macOS에서 실행할 수 있는 공식 Codex CLI 또는 Claude Code CLI와 해당 구독 계정 |
-
-저장소 루트에서 실행합니다.
-
-```bash
-./build-macos.sh
-./run-macos.command
-```
-
-`build-macos.sh`는 공통 React UI를 `artifacts/macos/Web`에 빌드하고 Swift 실행 파일·웹 UI·아이콘을 **`artifacts/macos/AI Usage.app`**에 담은 뒤 임시 코드 서명을 적용합니다. Windows의 `Release`는 변경하지 않습니다. `run-macos.command`는 앱이 없을 때만 빌드하며, 이미 있으면 그대로 실행합니다. 소스 변경 뒤에는 앱을 종료하고 빌드 스크립트를 다시 실행하세요.
-
-| 빌드 결과 | 값 |
-|---|---|
-| 앱 이름 | `AI Usage.app` |
-| 번들 ID | `com.aiusagewidget.macos` |
-| 최소 macOS | `13.0` |
-| 아키텍처 | 빌드한 Mac의 `uname -m`: Apple Silicon `arm64`, Intel `x86_64` |
-| 화면 엔진 | macOS 기본 WebKit |
-| Dock 표시 | `LSUIElement` 메뉴 막대 앱이므로 표시하지 않음 |
-
-앱 자체 실행에는 Node.js·.NET·WebView2가 필요하지 않습니다. 공식 CLI와 로그인 상태는 번들에 포함되지 않으며, npm으로 설치한 CLI의 Node.js 요구 사항은 별도입니다.
+아래 실행·검증 방법은 과거 버전의 기록이며 현재 지원되는 개발·배포 절차가 아닙니다.
 
 ## 앱 배포와 이동
 
 배포 단위는 **`.app` 번들 전체**입니다. `AI Usage.app`을 응용 프로그램 폴더 등으로 옮겨 실행할 수 있으며 저장소의 `Web` 폴더를 따로 복사할 필요가 없습니다. 번들 내부 실행 파일만 분리하면 웹 UI와 리소스를 찾을 수 없습니다.
 
-현재 스크립트는 호스트 아키텍처 하나만 빌드하며 Universal Binary를 만들지 않습니다. 공개 릴리즈에는 대상 아키텍처별 검증, Developer ID 서명과 공증을 별도로 준비해야 합니다. 로컬의 ad-hoc 서명 검증 성공이 다른 Mac에서의 배포 신뢰성 검증을 대신하지 않습니다.
+과거 스크립트는 호스트 아키텍처 하나만 빌드했으며 Universal Binary를 만들지 않습니다. 공개 릴리즈에는 대상 아키텍처별 검증, Developer ID 서명과 공증을 별도로 준비해야 합니다. 로컬의 ad-hoc 서명 검증 성공이 다른 Mac에서의 배포 신뢰성 검증을 대신하지 않습니다.
 
 업데이트는 앱을 종료한 뒤 `.app` 전체를 교체합니다. 사용자 데이터는 `~/Library/Application Support/AIUsageWidget`에 있으므로 앱 파일 이동·교체와 별도로 유지됩니다. Claude 상태줄은 앱의 실행 파일 경로를 사용하며, 새 위치에서 새로고침하면 앱이 설치한 기존 명령의 경로를 갱신합니다. 사용자가 이후 직접 바꾼 상태줄은 주기적 갱신으로 덮어쓰지 않습니다.
 
-베타도 [공통 배포 절차](../docs/releasing.md#베타-배포)를 통해 두 CPU에서 검증한 ZIP을 공개합니다. 숫자 버전 필드 외에 `Info.plist`의 `AIUsageVersion`과 ZIP 파일명이 전체 베타 버전을 식별합니다.
+과거 베타는 두 CPU에서 검증한 ZIP으로 배포했습니다. 현재 배포 가이드는 Windows만 대상으로 합니다. 숫자 버전 필드 외에 `Info.plist`의 `AIUsageVersion`과 ZIP 파일명이 전체 베타 버전을 식별합니다.
 
 ## 소스 구조
 

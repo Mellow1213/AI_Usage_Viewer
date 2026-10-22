@@ -11,6 +11,7 @@ import AppKit
     private let tracker: DailyTracker
     private let history: UsageHistory
     private var historyVisible = false
+    private var trendsVisible = false
     private var timer: Timer?
     private var refreshTask: Task<Void, Never>?
     private var loginTask: Task<Void, Never>?
@@ -164,7 +165,7 @@ import AppKit
             let identity = account?.status == "connected" ? account?.email.map { "\(account!.source):\($0.lowercased()):\(usage.plan ?? account?.plan ?? "")" } : nil
             history.observe(usage, identity: identity)
             usage = tracker.observe(usage, identity: identity, interval: preferences.intervalMinutes, window: preferences.windowMinutes)
-            usage = history.withTrends(usage, identity: identity)
+            if trendsVisible { usage = history.withTrends(usage, identity: identity) }
             var result = usage.object
             result["name"] = profile.displayName; result["defaultName"] = profile.name; result["service"] = profile.service
             return result
@@ -194,6 +195,7 @@ import AppKit
         switch action {
         case "ready": changed?(); start(); return
         case "setHistoryVisible": historyVisible = message["visible"] as? Bool == true; changed?(); return
+        case "setTrendsVisible": trendsVisible = message["visible"] as? Bool == true; changed?(); return
         case "toggleLogo", "collapse": hide?(); return
         case "close": NSApplication.shared.terminate(nil); return
         case "toggleMotion": preferences.animateTransitions.toggle()

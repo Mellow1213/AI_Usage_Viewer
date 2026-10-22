@@ -635,6 +635,11 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         }
     }
     private func verifyRecentTrends() async throws -> Bool {
+        let cardsClear = try await evaluateWebContent("!document.querySelector('.recent-trend')") as? Bool == true
+        try await evaluateWebContent("document.querySelector('[aria-label=\"설정\"]').click()")
+        try await Task.sleep(nanoseconds: 150_000_000)
+        try await evaluateWebContent("document.querySelector('[aria-label=\"사용량 추이\"]').click()")
+        try await Task.sleep(nanoseconds: 200_000_000)
         let data = try JSONSerialization.data(withJSONObject: store.state(maxHeight: maxHeight))
         let state = String(decoding: data, as: UTF8.self)
         try await evaluateWebContent("""
@@ -648,13 +653,15 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
         window.aiUsageReceive(window.__recentFixture);
         """)
         try await Task.sleep(nanoseconds: 200_000_000)
-        let halfHour = try await evaluateWebContent("document.querySelector('.codex .recent-trend').dataset.total==='2' && document.querySelector('.claude .recent-trend').dataset.total==='' && document.querySelectorAll('.claude .recent-chart rect').length===0") as? Bool == true
+        let halfHour = try await evaluateWebContent("document.getElementById('settings-title').textContent==='사용량 추이' && document.querySelector('.recent-trend').dataset.total==='2' && document.getElementById('trend-source').options.length===4") as? Bool == true
         try await evaluateWebContent("window.aiUsageReceive({...window.__recentFixture, measurementWindowMinutes:60})")
         try await Task.sleep(nanoseconds: 200_000_000)
-        let hour = try await evaluateWebContent("document.querySelector('.codex .recent-trend').dataset.total==='7' && document.querySelectorAll('.codex .recent-bucket').length<24 && Math.abs(+document.querySelector('.codex .recent-trend').dataset.end-Date.now())<1000 && document.documentElement.scrollWidth<=innerWidth") as? Bool == true
+        let hour = try await evaluateWebContent("document.querySelector('.recent-trend').dataset.total==='7' && document.querySelectorAll('.recent-bucket').length<24 && Math.abs(+document.querySelector('.recent-trend').dataset.end-Date.now())<1000 && document.documentElement.scrollWidth<=innerWidth") as? Bool == true
+        try await evaluateWebContent("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
+        try await Task.sleep(nanoseconds: 500_000_000)
         publish(force: true)
-        try await Task.sleep(nanoseconds: 200_000_000)
-        return halfHour && hour
+        let closed = try await evaluateWebContent("!document.querySelector('.recent-trend') && document.querySelectorAll('.provider').length===2") as? Bool == true
+        return cardsClear && halfHour && hour && closed
     }
     private func verifyHistoryScreen() async throws -> Bool {
         try await evaluateWebContent("document.querySelector('[aria-label=\"설정\"]').click()")

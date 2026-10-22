@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     private readonly DailyUsageTracker _daily;
     private readonly UsageHistory _history;
     private bool _historyVisible;
+    private bool _trendsVisible;
     private AiAccountPreferences _accountProfiles;
     private readonly Dictionary<string, IAccountSession> _sessions;
     private readonly Func<CodexProfile, CodexClient>? _codexFactory;
@@ -242,6 +243,10 @@ public partial class MainWindow : Window
                 case "applyUpdate":
                     if (AuthBusy) { _notice = "로그인을 완료하거나 취소한 뒤 업데이트를 적용해주세요."; Publish(); }
                     else if (_updates.PrepareRestart()) Close();
+                    break;
+                case "setTrendsVisible":
+                    _trendsVisible = root.TryGetProperty("visible", out var trendsVisible) && trendsVisible.ValueKind == JsonValueKind.True;
+                    Publish();
                     break;
                 case "setMeasurementInterval":
                 case "setMeasurementWindow":
@@ -543,7 +548,7 @@ public partial class MainWindow : Window
             var usage = session.Usage with { Id = id, Name = session.Profile.DisplayName, Service = session.Profile.Service, DefaultName = session.Profile.Name };
             _history.Observe(usage, Identity(session.Account, usage), now);
             usage = _daily.Observe(usage, Identity(session.Account, usage), now, interval, _measurement.WindowMinutes);
-            return _history.WithTrends(usage, Identity(session.Account, usage), now);
+            return _trendsVisible ? _history.WithTrends(usage, Identity(session.Account, usage), now) : usage;
         }).ToArray();
         var payload = JsonSerializer.Serialize(new
         {
