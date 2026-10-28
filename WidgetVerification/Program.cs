@@ -263,7 +263,7 @@ internal static partial class Program
         await CaptureAsync("cards.png");
         await ScriptAsync("document.querySelector('[aria-label=\"관측 측정 설정\"]').click()");
         await Task.Delay(350);
-        await AssertScriptAsync("document.querySelectorAll('.measurement-options button').length === 12 && document.querySelector('.measurement-slider').min === '1' && document.querySelector('.measurement-slider').max === '180' && document.querySelector('.menu').getBoundingClientRect().bottom <= innerHeight", "Measurement slider and preset buttons fit the native window with a one-minute to three-hour range");
+        await AssertScriptAsync("document.querySelectorAll('.measurement-options button').length === 6 && document.querySelector('.measurement-slider').min === '1' && document.querySelector('.measurement-slider').max === '180' && document.querySelector('.menu').getBoundingClientRect().bottom <= innerHeight", "Measurement slider and preset buttons fit the native window with a one-minute to three-hour range");
         async Task SliderKey(string key, int code)
         {
             await ScriptAsync("document.querySelector('.measurement-slider').focus()");
@@ -282,13 +282,15 @@ internal static partial class Program
         await Task.Delay(100);
         Check(MeasurementPreferences.Read(uiProfile).IntervalMinutes == 5, "Aggregation preset button saves immediately");
         await ScriptAsync("document.querySelector('[aria-label=\"집계 주기 3h\"]').click()");
+        await CaptureAsync("measurement-settings.png");
+        await ScriptAsync("document.querySelector('[aria-label=\"그래프 보기\"]').click()");
+        await Task.Delay(250);
         await ScriptAsync("document.querySelector('[aria-label=\"비교 구간 1h\"]').click()");
         await Task.Delay(100);
         Check(MeasurementPreferences.Read(uiProfile) is { IntervalMinutes: 180, WindowMinutes: 60 }, "Measurement interval and comparison window save independently");
         await ScriptAsync("for(const minutes of [0,181,1.5])window.chrome.webview.postMessage({action:'setMeasurementInterval',minutes})");
         await Task.Delay(100);
         Check(MeasurementPreferences.Read(uiProfile).IntervalMinutes == 180, "Native measurement settings reject out-of-range and fractional aggregation intervals");
-        await CaptureAsync("measurement-settings.png");
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
 
         // Observe real frames across two idle cycles: native state publications

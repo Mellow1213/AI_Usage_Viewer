@@ -354,10 +354,11 @@ function MeasurementSettings({ state, onChange, onTrends }) {
         onKeyUp={event => commit(Number(event.currentTarget.value))} onBlur={event => commit(Number(event.currentTarget.value))} />
       <div className="measurement-range-labels"><span>1m</span><span>3h</span></div>
       <div className="measurement-options interval-options">{intervalOptions.map(minutes => <button key={minutes} aria-label={`집계 주기 ${measurementLabel(minutes)}`} aria-pressed={draft === minutes} className={draft === minutes ? 'selected' : ''} onClick={() => commit(minutes)}>{measurementLabel(minutes)}</button>)}</div>
+      <p className="measurement-hint">집계 주기는 1분~3시간, 1분 단위입니다. 잔여량 조회 주기는 그대로입니다.</p>
     </section>
-    <section><h3>비교 구간</h3><p>현재 시각부터 거슬러 본 총소비량과 추이 · 변경 즉시 계산</p><div className="measurement-options">{measurementOptions.map(option => <button key={option.minutes} aria-label={`비교 구간 ${option.label}`} aria-pressed={(state.measurementWindowMinutes ?? 30) === option.minutes} className={(state.measurementWindowMinutes ?? 30) === option.minutes ? 'selected' : ''} onClick={() => onChange('window', option.minutes)}>{option.label}</button>)}</div></section>
-    <button className="account-secondary trend-open" onClick={onTrends}>사용량 추이 보기<ChevronRight size={13} /></button>
-    <p className="measurement-hint">집계 주기는 1분~3시간, 1분 단위입니다. 비교 구간의 총소비량과 그래프는 별도의 사용량 추이 화면에서 확인합니다. 잔여량 조회 주기는 그대로입니다.</p>
+    <section><h3>추가 분석</h3><p>필요할 때 그래프를 열어 기간별 소비량을 살펴볼 수 있습니다.</p>
+      <button className="account-secondary trend-open" aria-label="그래프 보기" onClick={onTrends}>그래프 보기<ChevronRight size={13} /></button>
+    </section>
   </div>;
 }
 
@@ -366,8 +367,7 @@ function SettingsHome({ state, onNavigate, onQuit }) {
     ...(state.platform === 'macos' ? [] : [{ page: 'updates', title: '앱 업데이트', label: '앱 업데이트 설정', description: 'GitHub Releases · 확인 · 다운로드 · 재시작', value: state.update?.canApply ? '적용 대기' : state.update?.canDownload ? '새 버전' : `v${state.update?.currentVersion ?? ''}`, Icon: RefreshCw }]),
     { page: 'accounts', title: '계정 관리', description: '추가 · 로그인 · 별명 · 삭제', value: `${managedAccounts(state).length}개 계정`, Icon: UserRound },
     { page: 'history', title: '사용 기록', description: '일별 · 시간별 · 주별 관측 기록', value: '최근 90일', Icon: ChartNoAxesColumn },
-    { page: 'trends', title: '사용량 추이', description: '선택 구간의 총소비량 · 그래프', value: `최근 ${measurementLabel(state.measurementWindowMinutes ?? 30)}`, Icon: Rows3 },
-    { page: 'measurement', title: '사용량 측정', description: '관측 사용량 계산 기준', value: `집계 ${measurementLabel(state.measurementIntervalMinutes ?? 30)} · 비교 ${measurementLabel(state.measurementWindowMinutes ?? 30)}`, Icon: Clock3 },
+    { page: 'measurement', title: '사용량 측정', description: '관측 사용량 계산 기준', value: `집계 ${measurementLabel(state.measurementIntervalMinutes ?? 30)}`, Icon: Clock3 },
     { page: 'appearance', title: '화면 설정', description: state.platform === 'macos' ? '화면 전환 애니메이션' : '애니메이션 · 창 고정 · 위치', value: state.animateTransitions !== false ? '애니메이션 켜짐' : '애니메이션 꺼짐', Icon: LayoutPanelTop }
   ];
   return <>
@@ -411,7 +411,7 @@ function SettingsPanel({ page, onBack, onClose, notice, children }) {
   useEffect(() => { content.current.scrollTop = 0; heading.current.focus({ preventScroll: true }); }, [page]);
   return <section className="menu settings-panel" aria-labelledby="settings-title">
     <header className="settings-heading">
-      {page === 'settings' ? <Settings className="settings-heading-icon" size={16} /> : <button className="icon-button" aria-label={page === 'providers' ? '계정 관리로 돌아가기' : '설정으로 돌아가기'} onClick={onBack}><ArrowLeft size={16} /></button>}
+      {page === 'settings' ? <Settings className="settings-heading-icon" size={16} /> : <button className="icon-button" aria-label={page === 'providers' ? '계정 관리로 돌아가기' : page === 'trends' ? '사용량 측정으로 돌아가기' : '설정으로 돌아가기'} onClick={onBack}><ArrowLeft size={16} /></button>}
       <h2 id="settings-title" ref={heading} tabIndex={-1}>{settingsPages[page]}</h2>
       <button className="icon-button" aria-label="설정 닫기" title="사용량으로 돌아가기" onClick={onClose}><X size={16} /></button>
     </header>
@@ -597,7 +597,7 @@ function App() {
   </motion.div> : <motion.div key={`card-${mode}`} data-view={mode} className={`widget ${menu ? 'settings-open' : ''}`} style={{ '--card-max-height': `${(state.maxCardHeight ?? 880) - 2}px`, ...(native ? { width: 302 } : {}) }}
     initial={transitionReduce ? false : { opacity: 0, y: 4 }} animate={{ opacity: changing ? 0 : 1, y: changing ? 4 : 0 }} exit={{ opacity: 0, transition: { duration: transitionReduce ? 0 : .08 } }}
     transition={{ duration: transitionReduce ? 0 : changing ? .08 : .13, ease: [.22, 1, .36, 1] }}>
-    {menu ? <SettingsPanel page={menuPage} onBack={() => setMenuPage(menuPage === 'providers' ? 'accounts' : 'settings')} onClose={() => setMenu(false)} notice={state.notice}>
+    {menu ? <SettingsPanel page={menuPage} onBack={() => setMenuPage(menuPage === 'providers' ? 'accounts' : menuPage === 'trends' ? 'measurement' : 'settings')} onClose={() => setMenu(false)} notice={state.notice}>
       {menuPage === 'accounts' ? <Accounts state={state} onAdd={openPicker} onRemove={removeProvider} onRestore={restoreProvider} onRename={renameAccount} expandedId={expandedAccountId} onExpand={setExpandedAccountId} />
         : menuPage === 'providers' ? <ProviderPicker state={state} onAdd={addProvider} />
         : menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} onTrends={() => openSettingsPage('trends')} />

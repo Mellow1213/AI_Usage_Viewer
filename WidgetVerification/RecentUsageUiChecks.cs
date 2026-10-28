@@ -29,11 +29,18 @@ internal static partial class Program
         await Task.Delay(150);
         // The ready handshake starts snapshot polling; fixtures must stay isolated from that poller.
         _window.SetFixture(codex, claude);
-        await AssertScriptAsync("!document.querySelector('.recent-trend') && window.__trendState.providers.every(provider=>provider.windows.every(quota=>!quota.trend))",
+        await AssertScriptAsync("!document.querySelector('.recent-trend, .trend-open, details, summary') && window.__trendState.providers.every(provider=>provider.windows.every(quota=>!quota.trend))",
             "Detailed cards contain no trend area and native history payload is disabled by default");
         await CaptureAsync("cards-without-trends.png");
         await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()"); await Task.Delay(200);
-        await ScriptAsync("document.querySelector('[aria-label=\"사용량 추이\"]').click()"); await Task.Delay(350);
+        await AssertScriptAsync("!document.querySelector('.recent-trend') && !document.querySelector('[aria-label=\"사용량 추이\"]') && !document.querySelector('[aria-label=\"그래프 보기\"]')",
+            "Settings home keeps the optional graph out of its primary navigation");
+        await CaptureAsync("settings-without-trends.png");
+        await ScriptAsync("document.querySelector('[aria-label=\"사용량 측정\"]').click()"); await Task.Delay(200);
+        await AssertScriptAsync("!document.querySelector('.recent-trend') && !document.querySelector('[aria-label=\"비교 구간 1h\"]') && !!document.querySelector('[aria-label=\"그래프 보기\"]')",
+            "Measurement settings show only a secondary graph button without a folded graph or comparison controls");
+        await CaptureAsync("measurement-graph-button.png");
+        await ScriptAsync("document.querySelector('[aria-label=\"그래프 보기\"]').click()"); await Task.Delay(650);
         await AssertScriptAsync("document.getElementById('settings-title').textContent==='사용량 추이' && document.querySelector('.recent-trend').dataset.total==='2' && document.querySelector('.recent-trend').dataset.status==='partial' && document.querySelector('.recent-total').textContent==='2%p'",
             "The separate optional trend screen loads history on demand and shows the current-time total");
         await AssertScriptAsync("document.querySelectorAll('.recent-chart rect').length>0 && document.querySelector('.recent-chart .zero')!==null && document.querySelectorAll('#trend-source option').length===3",
@@ -82,6 +89,9 @@ internal static partial class Program
         await ScriptAsync("window.__trendMessages=0; window.__trendNow+=61*60000; window.dispatchEvent(new Event('focus'))"); await Task.Delay(150);
         await AssertScriptAsync("document.querySelector('.recent-trend').dataset.total==='' && document.querySelectorAll('.recent-chart rect').length===0 && window.__trendMessages===0",
             "The optional screen ages records out locally without another native message");
+        await ScriptAsync("document.querySelector('[aria-label=\"사용량 측정으로 돌아가기\"]').click()"); await Task.Delay(250);
+        await AssertScriptAsync("document.getElementById('settings-title').textContent==='사용량 측정' && !document.querySelector('.recent-trend') && window.__trendState.providers.every(provider=>provider.windows.every(quota=>!quota.trend))",
+            "Leaving the graph returns to measurement settings and releases its history payloads");
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()"); await Task.Delay(650);
         await AssertScriptAsync("!document.querySelector('.recent-trend') && window.__trendState.providers.every(provider=>provider.windows.every(quota=>!quota.trend))",
             "Closing the optional screen releases history payloads and returns to graph-free cards");
