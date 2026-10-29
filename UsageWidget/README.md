@@ -88,6 +88,7 @@ node --test .\WidgetUI\src\*.test.js
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\connection-checks --connection-only
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\trend-checks --trend-only
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\history-checks --history-only
+dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\settings-checks --settings-only
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\widget-verification
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\performance-checks --performance-checks-only
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\presence-checks --presence-only
@@ -98,6 +99,8 @@ dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Rel
 단위 테스트는 표시 시각 경계를, 통합 검증은 데이터 파싱·상태줄 복원·계정 격리·계정 삭제·관측 집계·보기 전환 등을 확인합니다. 계정 삭제 검증은 기본·추가·기존 숨김 계정의 태그 제거, 재실행과 이전 형식 복원 시 재등장 방지, 다른 계정과 로그인 파일 보존을 포함합니다. 성능 변경 검증은 동일 상태 전송 생략, 새 데이터 전달, 로고 화면의 시계 해제와 복원을 확인합니다. 결과는 지정한 출력 폴더의 `results.json`에 저장합니다. 기본 검증은 예시 데이터와 별도 Claude 설정 파일을 사용합니다.
 
 `ReleasePipelineChecks.ps1`은 복사한 배포 스크립트를 격리된 예시 패키지와 모의 Git·GitHub·dotnet 명령으로 실행합니다. Windows 파일만으로 게시·익명 확인 흐름이 진행되는지, 커밋 불일치·로컬 패키지 손상·업로드 해시 불일치를 거부하는지 확인합니다. 네트워크 요청이나 실제 릴리스 게시는 하지 않습니다. `Desktop verification` CI도 Windows에서 이 검사를 실행합니다.
+
+설정 이동 검증은 설정의 각 하위 화면, 메인 바로가기, 그래프의 진입 경로별 뒤로 가기, 계정 추가 완료·취소, 상단 경로 이동과 닫기 후 원래 카드 모드 복원을 확인합니다. `--settings-only`로 따로 실행할 수 있으며 기본 통합 검증에도 포함합니다.
 
 자동 연결 검증은 저장된 계정의 첫 화면, 느린 인증·사용량 응답, 계정별 완료 표시, 실제 미연결·오류·재시도와 기존 수신값 보존을 격리된 CLI로 확인합니다.
 

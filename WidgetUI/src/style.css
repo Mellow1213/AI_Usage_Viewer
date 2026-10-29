@@ -241,8 +241,13 @@ footer { height: 34px; }
 .menu.settings-panel { display: flex; flex-direction: column; max-height: var(--card-max-height, 878px); min-height: 180px; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .settings-heading { display: flex; align-items: center; gap: 9px; flex-shrink: 0; min-height: 52px; border-bottom: 1px solid #ffffff0d; }
 .settings-heading h2 { flex: 1; margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.2px; outline: none; }
-.settings-heading-icon { margin: 0 4px; color: #aab4a6; }
 .settings-heading .icon-button { color: #aab4a6; }
+.settings-breadcrumbs { flex-shrink: 0; padding: 10px 1px 0; color: #8e9a85; font-size: 9px; line-height: 1.6; }
+.settings-breadcrumbs ol { display: flex; flex-wrap: wrap; gap: 3px 4px; margin: 0; padding: 0; list-style: none; }
+.settings-breadcrumbs li { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.settings-breadcrumbs button { padding: 2px 0; background: transparent; color: inherit; font: inherit; }
+.settings-breadcrumbs button:hover { color: #c4e8a1; text-decoration: underline; }
+.settings-breadcrumbs [aria-current] { color: #bfccaf; }
 .settings-content { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 14px 1px; scrollbar-width: thin; scrollbar-color: #576254 transparent; }
 .settings-notice { margin-bottom: 12px; }
 .settings-nav { display: grid; gap: 8px; }

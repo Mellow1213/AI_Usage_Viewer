@@ -8,6 +8,7 @@ import { useProviderClock } from './useProviderClock.js';
 import { UsageHistory } from './UsageHistory.jsx';
 import { previewHistory } from './usageHistory.js';
 import { UsageTrends } from './UsageTrends.jsx';
+import { finishAddingAccount, restoreSettingsPath, settingsPages, visitSettingsPage } from './settingsNavigation.js';
 
 const native = window.aiUsageNative ?? window.chrome?.webview;
 const send = (action, extra = {}) => native?.postMessage({ action, ...extra });
@@ -404,17 +405,24 @@ function AppearanceSettings({ state, onAction }) {
   </div>;
 }
 
-const settingsPages = { settings: '설정', accounts: '계정 관리', providers: '계정 추가', trends: '사용량 추이', history: '사용 기록', measurement: '사용량 측정', appearance: '화면 설정', updates: '앱 업데이트' };
-function SettingsPanel({ page, onBack, onClose, notice, children }) {
+function SettingsPanel({ path, onBack, onClose, onNavigate, notice, children }) {
+  const page = path.at(-1);
+  const backPage = path.at(-2);
+  const backLabel = `${settingsPages[backPage] ?? '사용량'}${['accounts', 'providers', 'trends', 'updates'].includes(backPage) ? '로' : '으로'} 돌아가기`;
   const heading = useRef(null);
   const content = useRef(null);
   useEffect(() => { content.current.scrollTop = 0; heading.current.focus({ preventScroll: true }); }, [page]);
   return <section className="menu settings-panel" aria-labelledby="settings-title">
     <header className="settings-heading">
-      {page === 'settings' ? <Settings className="settings-heading-icon" size={16} /> : <button className="icon-button" aria-label={page === 'providers' ? '계정 관리로 돌아가기' : page === 'trends' ? '사용량 측정으로 돌아가기' : '설정으로 돌아가기'} onClick={onBack}><ArrowLeft size={16} /></button>}
+      <button className="icon-button" aria-label={backLabel} title={backLabel} onClick={onBack}><ArrowLeft size={16} /></button>
       <h2 id="settings-title" ref={heading} tabIndex={-1}>{settingsPages[page]}</h2>
       <button className="icon-button" aria-label="설정 닫기" title="사용량으로 돌아가기" onClick={onClose}><X size={16} /></button>
     </header>
+    <nav className="settings-breadcrumbs" aria-label="현재 화면 경로">
+      <ol><li><button onClick={onClose}>사용량</button></li>{path.map((item, index) => <li key={item}>
+        <ChevronRight size={10} aria-hidden="true" />{index === path.length - 1 ? <span aria-current="page">{settingsPages[item]}</span> : <button onClick={() => onNavigate(item)}>{settingsPages[item]}</button>}
+      </li>)}</ol>
+    </nav>
     <div className="settings-content" ref={content}>
       {notice && <div role="status" className="notice settings-notice">{notice}</div>}
       {children}
@@ -430,8 +438,10 @@ function App() {
     else setState(state => ({ ...state, history: visible ? (preview ? previewHistory() : { series: [] }) : null }));
   }, []);
   const menuBar = state.platform === 'macos';
-  const [menu, setMenu] = useState(restoredUI?.menu ?? previewTrends);
-  const [menuPage, setMenuPage] = useState(restoredUI?.menuPage ?? (previewTrends ? 'trends' : 'settings'));
+  const [settingsPath, setSettingsPath] = useState(() => restoreSettingsPath(restoredUI, previewTrends));
+  const menu = settingsPath.length > 0;
+  const menuPage = settingsPath.at(-1) ?? 'settings';
+  const closeSettings = () => setSettingsPath([]);
   const [expandedAccountId, setExpandedAccountId] = useState(restoredUI?.expandedAccountId ?? null);
   const pendingAccount = useRef(restoredUI?.pendingAccount ?? null);
   const reduce = useReducedMotion();
@@ -466,10 +476,10 @@ function App() {
       const focused = document.activeElement;
       const focus = focused?.id ? { id: focused.id,
         ...(Number.isInteger(focused.selectionStart) ? { start: focused.selectionStart, end: focused.selectionEnd } : {}) } : null;
-      return { menu, menuPage, expandedAccountId, pendingAccount: pendingAccount.current, form, scroll, focus, historyView: window.aiUsageHistoryView, trendView: window.aiUsageTrendView };
+      return { menu, menuPage, settingsPath, expandedAccountId, pendingAccount: pendingAccount.current, form, scroll, focus, historyView: window.aiUsageHistoryView, trendView: window.aiUsageTrendView };
     };
     return () => { delete window.aiUsageCaptureUI; };
-  }, [menu, menuPage, expandedAccountId]);
+  }, [settingsPath, menu, menuPage, expandedAccountId]);
   useEffect(() => {
     if (!restoredUI) return;
     let frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => {
@@ -505,7 +515,7 @@ function App() {
     observer.observe(view);
     return () => observer.disconnect();
   }, [mode, revision, transitionReduce]);
-  useEffect(() => { if (mode === 2) setMenu(false); }, [mode]);
+  useEffect(() => { if (mode === 2) setSettingsPath([]); }, [mode]);
   useEffect(() => {
     if (!pendingAccount.current) return;
     const { service, previous } = pendingAccount.current;
@@ -538,7 +548,7 @@ function App() {
     else if (name === 'checkUpdates') setState(s => ({ ...s, update: { phase: 'upToDate', currentVersion: '1.1.0', message: '디자인 미리보기입니다. 실제 업데이트는 설치된 앱에서 확인해주세요.', canCheck: true } }));
     else if (name === 'refresh' && preview) { setState(s => ({ ...s, busy: true })); setTimeout(() => setState(s => ({ ...s, busy: false })), 2200); }
   };
-  const openSettingsPage = page => { setMenuPage(page); setMenu(true); };
+  const openSettingsPage = page => setSettingsPath(path => visitSettingsPage(path, page));
   const openAccounts = id => { setExpandedAccountId(id ?? null); openSettingsPage('accounts'); };
   const openPicker = () => openSettingsPage('providers');
   const openMeasurements = () => openSettingsPage('measurement');
@@ -548,7 +558,7 @@ function App() {
   };
   const addProvider = id => {
     pendingAccount.current = { service: id, previous: state.providers.map(provider => provider.id) };
-    setMenuPage('accounts');
+    setSettingsPath(finishAddingAccount);
     if (native) send('addProvider', { provider: id });
     else setState(s => {
       const added = s.providers.some(p => p.id === id);
@@ -597,7 +607,7 @@ function App() {
   </motion.div> : <motion.div key={`card-${mode}`} data-view={mode} className={`widget ${menu ? 'settings-open' : ''}`} style={{ '--card-max-height': `${(state.maxCardHeight ?? 880) - 2}px`, ...(native ? { width: 302 } : {}) }}
     initial={transitionReduce ? false : { opacity: 0, y: 4 }} animate={{ opacity: changing ? 0 : 1, y: changing ? 4 : 0 }} exit={{ opacity: 0, transition: { duration: transitionReduce ? 0 : .08 } }}
     transition={{ duration: transitionReduce ? 0 : changing ? .08 : .13, ease: [.22, 1, .36, 1] }}>
-    {menu ? <SettingsPanel page={menuPage} onBack={() => setMenuPage(menuPage === 'providers' ? 'accounts' : menuPage === 'trends' ? 'measurement' : 'settings')} onClose={() => setMenu(false)} notice={state.notice}>
+    {menu ? <SettingsPanel path={settingsPath} onBack={() => setSettingsPath(path => path.slice(0, -1))} onClose={closeSettings} onNavigate={openSettingsPage} notice={state.notice}>
       {menuPage === 'accounts' ? <Accounts state={state} onAdd={openPicker} onRemove={removeProvider} onRestore={restoreProvider} onRename={renameAccount} expandedId={expandedAccountId} onExpand={setExpandedAccountId} />
         : menuPage === 'providers' ? <ProviderPicker state={state} onAdd={addProvider} />
         : menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} onTrends={() => openSettingsPage('trends')} />
@@ -608,12 +618,12 @@ function App() {
         : <SettingsHome state={state} onNavigate={page => page === 'accounts' ? openAccounts() : openSettingsPage(page)} onQuit={() => action('close')} />}
     </SettingsPanel> : <>
     <header className="header">
-      <div className="drag-zone" title={menuBar ? "AI Usage" : "드래그해서 이동"}><button className="logo-toggle" aria-label={menuBar ? "메뉴 막대로 닫기" : "로고만 표시"} title={menuBar ? "메뉴 막대로 닫기 · 조회는 계속됩니다" : "로고만 표시 · 다시 누르면 이 화면으로 돌아오기"} onClick={() => { setMenu(false); action('toggleLogo'); }}><Triangle connected={allConnected} active={!logoMoving && (state.busy || state.authBusy)} rotation={logoRotation} /></button><div className="wordmark">AI<span>USAGE</span></div>{!menuBar && <Grip className="grip" size={13} />}</div>
+      <div className="drag-zone" title={menuBar ? "AI Usage" : "드래그해서 이동"}><button className="logo-toggle" aria-label={menuBar ? "메뉴 막대로 닫기" : "로고만 표시"} title={menuBar ? "메뉴 막대로 닫기 · 조회는 계속됩니다" : "로고만 표시 · 다시 누르면 이 화면으로 돌아오기"} onClick={() => { closeSettings(); action('toggleLogo'); }}><Triangle connected={allConnected} active={!logoMoving && (state.busy || state.authBusy)} rotation={logoRotation} /></button><div className="wordmark">AI<span>USAGE</span></div>{!menuBar && <Grip className="grip" size={13} />}</div>
       <div className="header-actions">
         {menuBar && refreshButton}
         {!menuBar && <button className={`icon-button ${state.pinned ? 'selected' : ''}`} title={state.pinned ? '항상 위 고정 해제' : '항상 위에 고정'} aria-label="항상 위에 고정" aria-pressed={state.pinned} onClick={() => action('pin')}><Pin size={13} /></button>}
         <button className="icon-button" title="AI 계정 추가" aria-label="AI 추가" onClick={openPicker}><CirclePlus size={14} /></button>
-        <button className="icon-button view-toggle" title={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-label={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-pressed={mode === 0} onClick={() => { setMenu(false); action('toggleDetails'); }}>{mode === 0 ? <Rows3 size={14} /> : <LayoutPanelTop size={14} />}</button>
+        <button className="icon-button view-toggle" title={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-label={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-pressed={mode === 0} onClick={() => { closeSettings(); action('toggleDetails'); }}>{mode === 0 ? <Rows3 size={14} /> : <LayoutPanelTop size={14} />}</button>
         <button className={`icon-button settings-button ${state.update?.canDownload || state.update?.canApply ? 'has-update' : ''}`} title={state.update?.canApply ? '설정 · 업데이트 적용 대기' : state.update?.canDownload ? '설정 · 새 버전 있음' : '설정'} aria-label="설정" onClick={() => openSettingsPage('settings')}><Settings size={17} /></button>
       </div>
     </header>
