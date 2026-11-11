@@ -37,8 +37,12 @@ internal static partial class Program
                 else if (args.Contains("--performance-only")) await MeasurePerformanceAsync();
                 else if (args.Contains("--performance-checks-only")) await VerifyPerformanceChangesAsync();
                 else if (args.Contains("--multi-ai-only")) await VerifyMultipleAiAsync();
+                else if (args.Contains("--connection-only")) await VerifyAutoConnectionAsync();
+                else if (args.Contains("--trend-only")) { UsageHistoryChecks.Run(Path.Combine(_output, "usage-history"), Check); await VerifyRecentUsageAsync(); }
                 else if (args.Contains("--multi-codex-only")) await VerifyMultipleCodexAsync();
-                else await VerifyAsync(args.Contains("--live"));
+                else if (args.Contains("--history-only")) { UsageHistoryChecks.Run(Path.Combine(_output, "usage-history"), Check); await VerifyUsageHistoryAsync(); }
+                else if (args.Contains("--settings-only")) await VerifySettingsNavigationAsync();
+                else { await VerifyAutoConnectionAsync(); await VerifyRecentUsageAsync(); await VerifyAsync(args.Contains("--live")); await VerifyUsageHistoryAsync(); await VerifySettingsNavigationAsync(); }
                 _exitCode = 0;
             }
             catch (Exception ex) { error = ex.ToString(); Console.Error.WriteLine(error); }
@@ -163,6 +167,7 @@ internal static partial class Program
     {
         VerifyDailyUsage();
         QuotaResetChecks.Run(Path.Combine(_output, "quota-resets"), Check);
+        UsageHistoryChecks.Run(Path.Combine(_output, "usage-history"), Check);
         VerifyMeasurementSchedule();
         await VerifyClaudeUsageControlAsync();
         await VerifyAccountsAsync();
@@ -259,7 +264,7 @@ internal static partial class Program
         await CaptureAsync("cards.png");
         await ScriptAsync("document.querySelector('[aria-label=\"관측 측정 설정\"]').click()");
         await Task.Delay(350);
-        await AssertScriptAsync("document.querySelectorAll('.measurement-options button').length === 12 && document.querySelector('.measurement-slider').min === '1' && document.querySelector('.measurement-slider').max === '180' && document.querySelector('.menu').getBoundingClientRect().bottom <= innerHeight", "Measurement slider and preset buttons fit the native window with a one-minute to three-hour range");
+        await AssertScriptAsync("document.querySelectorAll('.measurement-options button').length === 6 && document.querySelector('.measurement-slider').min === '1' && document.querySelector('.measurement-slider').max === '180' && document.querySelector('.menu').getBoundingClientRect().bottom <= innerHeight", "Measurement slider and preset buttons fit the native window with a one-minute to three-hour range");
         async Task SliderKey(string key, int code)
         {
             await ScriptAsync("document.querySelector('.measurement-slider').focus()");
@@ -278,13 +283,15 @@ internal static partial class Program
         await Task.Delay(100);
         Check(MeasurementPreferences.Read(uiProfile).IntervalMinutes == 5, "Aggregation preset button saves immediately");
         await ScriptAsync("document.querySelector('[aria-label=\"집계 주기 3h\"]').click()");
+        await CaptureAsync("measurement-settings.png");
+        await ScriptAsync("document.querySelector('[aria-label=\"그래프 보기\"]').click()");
+        await Task.Delay(250);
         await ScriptAsync("document.querySelector('[aria-label=\"비교 구간 1h\"]').click()");
         await Task.Delay(100);
         Check(MeasurementPreferences.Read(uiProfile) is { IntervalMinutes: 180, WindowMinutes: 60 }, "Measurement interval and comparison window save independently");
         await ScriptAsync("for(const minutes of [0,181,1.5])window.chrome.webview.postMessage({action:'setMeasurementInterval',minutes})");
         await Task.Delay(100);
         Check(MeasurementPreferences.Read(uiProfile).IntervalMinutes == 180, "Native measurement settings reject out-of-range and fractional aggregation intervals");
-        await CaptureAsync("measurement-settings.png");
         await ScriptAsync("document.querySelector('[aria-label=\"설정 닫기\"]').click()");
 
         // Observe real frames across two idle cycles: native state publications
@@ -309,7 +316,7 @@ internal static partial class Program
         var damaged = codex with { Windows = [codex.Windows[0] with { UsedPercent = 91 }], UpdatedAt = now.AddSeconds(1) };
         _window.SetFixture(damaged, claude);
         await Task.Delay(300);
-        await AssertScriptAsync($"(()=>{{const times=[...document.querySelectorAll('.codex .observed-usage time')];return times.length>0&&times.every(time=>new Date(time.dateTime).getTime()==={damaged.UpdatedAt!.Value.ToUnixTimeMilliseconds()});}})()",
+        await AssertScriptAsync($"(()=>{{const times=[...document.querySelectorAll('.codex .observed-usage > .today-usage time')];return times.length>0&&times.every(time=>new Date(time.dateTime).getTime()==={damaged.UpdatedAt!.Value.ToUnixTimeMilliseconds()});}})()",
             "Full card observation clock advances to the latest received snapshot instead of the initial baseline");
         await AssertScriptAsync("document.querySelector('.codex .meter-trail').getBoundingClientRect().width > document.querySelector('.codex .meter-fill').getBoundingClientRect().width + 20", "Quota damage leaves a delayed HP trail before catching up");
         await CaptureAsync("damage-trail.png");
@@ -368,10 +375,11 @@ internal static partial class Program
         await AssertScriptAsync("window.logoSamples.every(sample=>sample.visible!==1||sample.peakOpacity>.95)", "Logo handoff waits for the incoming card fade instead of briefly dimming its logo");
         await AssertScriptAsync("(()=>{const angles=window.logoSamples.filter(sample=>sample.angle!==null).map(sample=>sample.angle);return angles.length>3&&Math.max(...angles)>100&&Math.max(...angles)<=120.1&&angles.every((angle,index)=>index===0||angle>=angles[index-1]-.1);})()", "Transition rotates only 120 degrees with easing and no restart or reversal");
         await AssertScriptAsync("document.querySelector('.drag-zone .triangle').style.transform.includes('rotate(120deg)')", "Static logo preserves the completed 120-degree orientation without snapping back");
-        Check(_window.ActualHeight < 250, "Collapse shrinks the actual native window");
+        var compactHeight = _window.ActualHeight;
+        Check(_window.ViewMode == WidgetViewMode.Compact && compactHeight < fullHeight, "Collapse shrinks the actual native window while fitting the trend graph");
         await AssertScriptAsync("document.querySelector('.compact .claude > strong').textContent === '38%' && document.querySelector('.compact .claude .compact-label').textContent === '주간' && document.querySelector('.compact .claude .compact-subvalue').textContent === '64%' && document.querySelectorAll('.compact .claude .compact-reset').length === 2 && [...document.querySelectorAll('.compact .claude .compact-reset')].every(n=>n.textContent.trim()!== '—' && n.title.includes('다음 리셋')) && document.querySelector('.widget').getBoundingClientRect().height <= innerHeight + 2 && document.querySelector('.compact .claude').scrollWidth <= document.querySelector('.compact .claude').clientWidth", "Compact Claude shows weekly and five-hour quotas with reset countdowns and exact-time tooltips without clipping");
         await CaptureAsync("compact.png");
-        await AssertScriptAsync($"(()=>{{const time=document.querySelector('.compact .codex .observed-usage time');return time&&new Date(time.dateTime).getTime()==={reducedDamage.UpdatedAt!.Value.ToUnixTimeMilliseconds()};}})()",
+        await AssertScriptAsync($"(()=>{{const time=document.querySelector('.compact .codex .observed-usage > .today-usage time');return time&&new Date(time.dateTime).getTime()==={reducedDamage.UpdatedAt!.Value.ToUnixTimeMilliseconds()};}})()",
             "Compact observation clock also follows the latest received snapshot");
         File.WriteAllText(Path.Combine(_output, "compact-text-layout.json"), await ScriptAsync("[...document.querySelectorAll('.compact strong')].map(strong=>({provider:strong.parentElement.className,text:strong.textContent,rect:strong.getBoundingClientRect().toJSON(),children:[...strong.children].map(child=>({text:child.textContent,rect:child.getBoundingClientRect().toJSON(),font:getComputedStyle(child).font,display:getComputedStyle(child).display,color:getComputedStyle(child).color,opacity:getComputedStyle(child).opacity}))}))"));
         await AssertScriptAsync("document.querySelectorAll('.header-actions .view-toggle').length===1 && document.querySelector('.view-toggle').getAttribute('aria-label')==='자세히 보기' && !document.querySelector('.header-actions .lucide-minus') && !document.querySelector('.header-actions .lucide-plus')", "Compact card keeps the same single detail button with the opposite action");
@@ -449,15 +457,17 @@ internal static partial class Program
         await Task.Delay(150);
         await ScriptAsync("document.querySelector('[aria-label=\"간략히 보기\"]').click()");
         await Task.Delay(100);
-        Check(!_window.IsResizing && _window.ActualHeight < 250, "Widget motion toggle skips native fold animation");
+        Check(!_window.IsResizing && Math.Abs(_window.ActualHeight - compactHeight) < 3, "Widget motion toggle skips native fold animation and reaches the measured compact height");
         await ScriptAsync("document.querySelector('[aria-label=\"자세히 보기\"]').click()");
         await Task.Delay(250);
         await ScriptAsync("window.chrome.webview.postMessage({action:'toggleMotion'})");
         await Task.Delay(150);
         await ScriptAsync("document.querySelector('[aria-label=\"설정\"]').click()");
         await Task.Delay(350);
-        await AssertScriptAsync("document.querySelector('.menu').getBoundingClientRect().bottom < innerHeight", "Settings menu fits the window");
+        await WaitAsync(() => !_window.IsResizing, "Settings window resize settled");
         await CaptureAsync("settings.png");
+        File.WriteAllText(Path.Combine(_output, "settings-layout.json"), await ScriptAsync("({menu:document.querySelector('.menu').getBoundingClientRect().bottom,height:innerHeight,root:document.querySelector('.widget').getBoundingClientRect().height,max:getComputedStyle(document.querySelector('.widget')).getPropertyValue('--card-max-height')})"));
+        await AssertScriptAsync("document.querySelector('.menu').getBoundingClientRect().bottom < innerHeight", "Settings menu fits the window");
         await ScriptAsync("document.querySelector('[aria-label=\"화면 설정\"]').click()");
         await Task.Delay(250);
         await AssertScriptAsync("document.querySelectorAll('.dock-option').length===4 && document.querySelectorAll('.dock-option[aria-pressed=\"true\"]').length===1", "Settings offers all four screen corners with the current anchor selected");
@@ -1172,7 +1182,18 @@ internal static partial class Program
                 Directory.CreateDirectory(home);
                 File.WriteAllText(Path.Combine(home, "test-environment.json"), JsonSerializer.Serialize(new { home, apiKeyInherited = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("OPENAI_API_KEY")) }));
             }
-            if (method == "account/read") result = new { account = signedIn ? new { type = "chatgpt", email, planType = "prolite" } : null };
+            if (method is "account/read" or "account/rateLimits/read")
+            {
+                var gate = Path.Combine(home, method == "account/read" ? "fixture-hold-account" : "fixture-hold-usage");
+                var deadline = DateTime.UtcNow.AddSeconds(20);
+                while (File.Exists(gate) && DateTime.UtcNow < deadline) Thread.Sleep(10);
+            }
+            if (method == "account/read")
+            {
+                if (File.Exists(Path.Combine(home, "fixture-fail-account")))
+                { Console.WriteLine(JsonSerializer.Serialize(new { id = number, error = new { code = -1, message = "fixture account error" } })); continue; }
+                result = new { account = signedIn ? new { type = "chatgpt", email, planType = "prolite" } : null };
+            }
             if (method == "account/rateLimits/read")
             {
                 if (File.Exists(Path.Combine(home, "fixture-fail-usage")))

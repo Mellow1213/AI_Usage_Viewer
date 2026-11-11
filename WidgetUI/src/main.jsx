@@ -1,10 +1,14 @@
-import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 import { animate, AnimatePresence, motion, useMotionValue, useSpring, useTransform } from 'motion/react';
-import { ArrowDownLeft, ArrowDownRight, ArrowLeft, ArrowUpLeft, ArrowUpRight, ChevronDown, ChevronRight, CirclePlus, Clock3, Command, Grip, Settings, Pin, Plus, Power, RefreshCw, Rows3, LayoutPanelTop, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowDownRight, ArrowLeft, ArrowUpLeft, ArrowUpRight, ChartNoAxesColumn, ChevronDown, ChevronRight, CirclePlus, Clock3, Command, Grip, Settings, Pin, Plus, Power, RefreshCw, Rows3, LayoutPanelTop, Trash2, UserRound, X } from 'lucide-react';
 import './style.css';
 import { UpdateSettings } from './Updates.jsx';
-import { nextDisplayDelay } from './displayClock.js';
+import { useProviderClock } from './useProviderClock.js';
+import { UsageHistory } from './UsageHistory.jsx';
+import { previewHistory } from './usageHistory.js';
+import { UsageTrends } from './UsageTrends.jsx';
+import { finishAddingAccount, restoreSettingsPath, settingsPages, visitSettingsPage } from './settingsNavigation.js';
 
 const native = window.aiUsageNative ?? window.chrome?.webview;
 const send = (action, extra = {}) => native?.postMessage({ action, ...extra });
@@ -40,10 +44,18 @@ const measurementLabel = minutes => measurementOptions.find(option => option.min
   ?? (minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`);
 // Browser preview is explicitly labelled; the desktop app never uses example values.
 const preview = new URLSearchParams(location.search).get('preview') === '1';
+const previewTrends = preview && new URLSearchParams(location.search).get('view') === 'trends';
 const previewState = { ...initial, busy: false, accounts: initial.accounts.map(account => ({ ...account, status: 'connected' })), providers: [
   { id: 'codex', status: 'ready', message: '계정 사용량', updatedAt: new Date().toISOString(), windows: [{ key: 'primary', label: '주간', usedPercent: 8, remainingPercent: 92, resetsAt: Date.now() / 1000 + 273000 }] },
   { id: 'claude', status: 'ready', message: 'Claude Code에서 수신', updatedAt: new Date().toISOString(), windows: [{ key: 'five_hour', label: '5시간', usedPercent: 36, remainingPercent: 64, resetsAt: Date.now() / 1000 + 8280 }, { key: 'seven_day', label: '주간', usedPercent: 62, remainingPercent: 38, resetsAt: Date.now() / 1000 + 180000 }] }
 ] };
+if (preview) for (const provider of previewState.providers) for (const quota of provider.windows) {
+  const at = minutes => Date.now() / 1000 + minutes * 60;
+  quota.trend = provider.id === 'codex' ? {
+    points: [[-1250, 2], [-1220, 1], [-1160, 4], [-860, 2], [-840, 3], [-560, 1], [-535, 4], [-310, 2], [-295, 1], [-210, 3], [-165, 1], [-140, 2], [-125, 1], [-102, 3], [-92, 2], [-70, 3], [-40, 5], [-24, 2], [-12, 1], [-4, 3]].map(([minute, value]) => [at(minute), value]),
+    coverage: [[-1260, -1150], [-890, -825], [-580, -510], [-330, -285], [-220, -200], [-175, -120], [-110, -88], [-80, -65], [-50, -35], [-30, -18], [-15, -2]].map(([a, b]) => [at(a), at(b)])
+  } : quota.key === 'five_hour' ? { points: [], coverage: [[at(-120), at(0)]] } : { points: [], coverage: [] };
+}
 const restoredUI = native?.uiState;
 const restoredForm = { ...restoredUI?.form };
 function takeFormDraft(id, saved) {
@@ -177,44 +189,15 @@ function TodayUsage({ quota, available, observedAt, compact = false, intervalMin
   const since = new Date(quota.today.observedSince).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   const measured = new Date(quota.today.measuredAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
   const received = new Date(quota.today.sourceAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
-  const recent = quota.today.recentPercentagePoints;
   const format = value => `${value > 0 ? '−' : ''}${value.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}`;
   return <div className="observed-usage"><button className="today-usage" aria-label="관측 측정 설정" onClick={onConfigure}
     title={`마지막 사용량 수신 ${time}. ${since}부터 관측한 ${quota.label} 한도 변화량입니다. 한도 초기화 또는 날짜 변경 시 누적 소모량을 새로 집계합니다. 집계 ${measured}, 집계에 반영된 수신 ${received}, 갱신 주기 ${measurementLabel(intervalMinutes)}. 하루 전체 사용량이나 토큰 수가 아니며, 수신되지 않은 소비와 초기화 사이의 사용은 빠질 수 있습니다. 클릭해서 측정 설정을 변경하세요.`}>
     <span><time dateTime={observationAt}>{time}</time>관측 {!compact && <span className="today-basis">· {quota.label}</span>}<span className="measurement-chip">{measurementLabel(intervalMinutes)}</span></span><span className="today-amount">{quota.today.isCurrentDay ? <>{format(points)}<small>%p</small></> : '집계 대기'}</span>
-  </button><button className="today-usage recent-usage" onClick={onConfigure} title={`마지막 집계(${measured}) 시점의 최근 ${measurementLabel(quota.today.windowMinutes)} 소비량입니다. 한도 초기화 시 이전 소비 기록도 지웁니다. 변화량을 수신한 시각을 기준으로 계산하며, 아직 쌓이지 않은 구간은 복원할 수 없습니다.`}>
-    <span>최근 {measurementLabel(quota.today.windowMinutes)} 관측</span><span className="today-amount">{format(recent)}<small>%p</small></span>
   </button></div>;
 }
 
-function useProviderClock(provider) {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    let timer;
-    const tick = () => {
-      clearTimeout(timer);
-      const current = Date.now();
-      setNow(current);
-      const delay = nextDisplayDelay(provider, current);
-      if (delay !== null) timer = setTimeout(tick, delay);
-    };
-    // A newly received snapshot and a restored card update immediately. Cards
-    // unmount in logo mode, so that mode has no receipt/countdown clock at all.
-    tick();
-    window.addEventListener('focus', tick);
-    const resume = () => { if (!document.hidden) { clearTimeout(timer); tick(); } };
-    document.addEventListener('visibilitychange', resume);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('focus', tick);
-      document.removeEventListener('visibilitychange', resume);
-    };
-  }, [provider]);
-  return now;
-}
-
-function ProviderCard({ provider, account, busy, onConnect, onMeasurements, measurementInterval, services = catalog }) {
-  const now = useProviderClock(provider);
+function ProviderCard({ provider, account, busy, onConnect, onMeasurements, measurementInterval, measurementWindow, services = catalog }) {
+  const now = useProviderClock(provider, measurementWindow);
   const reduce = useReducedMotion();
   const isClaude = serviceOf(provider) === 'claude';
   const service = services.find(item => item.id === serviceOf(provider));
@@ -231,7 +214,7 @@ function ProviderCard({ provider, account, busy, onConnect, onMeasurements, meas
     initial={reduce ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .45, delay: isClaude ? .08 : 0 }}>
     <div className="provider-head">
       <div className="provider-brand"><span className="provider-symbol">{service?.id === 'codex' ? <Command size={14} aria-hidden="true" /> : service?.symbol ?? '✦'}</span><span className="provider-name" title={[providerName(provider), account?.email].filter(Boolean).join(' · ')}><AccountLabel account={provider} /><PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span></div>
-      <span className={`status-tag ${stale || provider.status === 'error' ? 'muted' : ''}`}><span className="status-dot" />{provider.status === 'ready' ? stale ? '이전 수신값' : '연결됨' : provider.status === 'loading' ? '연결 중' : provider.status === 'error' ? '연결 오류' : provider.status === 'disconnected' ? '로그인 필요' : provider.status === 'signingIn' ? '로그인 중' : '응답 대기'}</span>
+      <span className={`status-tag ${stale || provider.status === 'error' ? 'muted' : ''}`}><span className="status-dot" />{provider.status === 'ready' ? stale ? '이전 수신값' : '연결됨' : provider.status === 'connecting' ? '자동 연결 중' : provider.status === 'loading' ? '연결 중' : provider.status === 'error' ? '연결 오류' : provider.status === 'disconnected' ? '로그인 필요' : provider.status === 'signingIn' ? '로그인 중' : '응답 대기'}</span>
     </div>
     <div className="quota-title"><span>{main ? `${main.label} 잔여량` : '사용량 잔여'} </span><span className="tiny-caption">REMAINING</span></div>
     <div className="quota-value"><span className="number">{available ? <NumberValue value={value} /> : <span className="unavailable">—</span>}</span>{available && <span className="percent">%</span>}<span className="quota-aside">{available ? low ? '조금 남았어요' : '남아 있어요' : busy ? '확인하고 있어요' : '수신을 기다려요'}<ArrowDownRight size={14} /></span></div>
@@ -248,8 +231,8 @@ function ProviderCard({ provider, account, busy, onConnect, onMeasurements, meas
   </motion.section>;
 }
 
-function CompactProvider({ provider, account, intervalMinutes, onMeasurements }) {
-  const now = useProviderClock(provider);
+function CompactProvider({ provider, account, intervalMinutes, windowMinutes, onMeasurements }) {
+  const now = useProviderClock(provider, windowMinutes);
   const claude = serviceOf(provider) === 'claude';
   const windows = provider.windows ?? [];
   // Compact Claude prioritizes the weekly pool. Keep the 5h quota separate
@@ -262,7 +245,7 @@ function CompactProvider({ provider, account, intervalMinutes, onMeasurements })
   return <div className={providerClass(provider)} data-account-id={provider.id}>
     <span className="compact-name" title={[providerName(provider), account?.email].filter(Boolean).join(' · ')}><AccountLabel account={provider} /><PlanLabel id={provider.id} plan={provider.plan ?? account?.plan} /></span>
     <strong>{valid ? <><NumberValue value={main.remainingPercent} /><small>%</small></> : '—'}</strong>
-    <div className="compact-period"><span className="compact-label">{main?.label ?? (claude ? '주간' : '수신 대기')}</span><CompactReset quota={main} label={main?.label ?? (claude ? '주간' : '한도')} now={now} /></div>
+    <div className="compact-period"><span className="compact-label">{provider.status === 'connecting' ? '자동 연결 중' : main?.label ?? (claude ? '주간' : '수신 대기')}</span><CompactReset quota={main} label={main?.label ?? (claude ? '주간' : '한도')} now={now} /></div>
     {claude ? <div className="compact-subquota" aria-label="Claude 5시간 잔여량"><div className="compact-period"><span>5시간</span><CompactReset quota={sub} label="5시간" now={now} /></div><span className="compact-subvalue">{available(sub) ? <><NumberValue value={sub.remainingPercent} />%</> : '—'}</span></div> : <div className="compact-subquota-slot" aria-hidden="true" />}
     <TodayUsage quota={main} available={valid} observedAt={provider.updatedAt} compact intervalMinutes={intervalMinutes} onConfigure={onMeasurements} />
   </div>;
@@ -301,18 +284,20 @@ function Accounts({ state, onAdd, onRemove, onRestore, onRename, expandedId, onE
       const name = providerName(account);
       const visible = state.providers.some(provider => provider.id === account.id);
       const connected = account.status === 'connected';
+      const connecting = account.status === 'connecting';
+      const failed = account.status === 'error';
       const signing = account.status === 'signingIn';
       const expanded = expandedId === account.id || signing;
       return <section className={`account-box managed-account ${providerClass(account)}`} data-account-id={account.id} key={account.id} aria-label={`${name} 계정 관리`}>
         <button className="account-summary" aria-label={`${name} 계정 관리`} aria-expanded={expanded} aria-controls={`account-details-${account.id}`} onClick={() => onExpand(expanded ? null : account.id)}>
-          <span className="account-summary-copy"><strong><AccountLabel account={account} /></strong><small title={account.email}>{account.email ?? (signing ? '로그인 진행 중' : connected ? '로그인된 계정' : '로그인이 필요합니다')}</small></span>
-          <span className={`account-status ${connected ? 'connected' : ''}`}>{!visible ? '숨김' : signing ? '로그인 중' : connected ? '연결됨' : '미연결'}</span><ChevronDown size={13} />
+          <span className="account-summary-copy"><strong><AccountLabel account={account} /></strong><small title={account.email}>{connecting ? '자동 연결 중입니다…' : account.email ?? (signing ? '로그인 진행 중' : connected ? '로그인된 계정' : failed ? '연결 상태를 확인해주세요' : '로그인이 필요합니다')}</small></span>
+          <span className={`account-status ${connected ? 'connected' : ''}`}>{!visible ? '숨김' : connecting ? '자동 연결 중' : signing ? '로그인 중' : connected ? '연결됨' : failed ? '연결 오류' : '미연결'}</span><ChevronDown size={13} />
         </button>
         {expanded && <div className="account-details" id={`account-details-${account.id}`}>
         <h3 className="settings-section-title">로그인</h3>
-        <p className="account-source">{account.source === 'system' ? '기존 CLI 계정과 연결됨' : '이 앱의 전용 계정'}</p>
+        <p className="account-source">{account.source === 'system' ? connecting ? '기존 CLI 계정 확인 중' : '기존 CLI 계정 사용' : '이 앱의 전용 계정'}</p>
         {account.message && <p className="account-message">{account.message}</p>}
-        {signing ? <>
+        {connecting ? null : signing ? <>
           <p>{claude ? '공식 Claude Code 창과 브라우저에서 직접 완료해주세요.' : '브라우저에서 ChatGPT 로그인을 직접 완료해주세요.'}</p>
           <div className="account-buttons"><button className="account-secondary" onClick={() => send('cancelLogin')}>로그인 취소</button>{!claude && <button className="account-secondary" onClick={() => send('reopenLogin')}>브라우저 다시 열기</button>}</div>
         </> : <>
@@ -346,7 +331,7 @@ function ProviderPicker({ state, onAdd }) {
   </div>;
 }
 
-function MeasurementSettings({ state, onChange }) {
+function MeasurementSettings({ state, onChange, onTrends }) {
   const interval = state.measurementIntervalMinutes ?? 30;
   const [draft, setDraft] = useState(() => Number(takeFormDraft('measurement-interval', interval)));
   const committed = useRef(interval);
@@ -362,7 +347,7 @@ function MeasurementSettings({ state, onChange }) {
   return <div className="measurement-settings">
     <section>
       <div className="measurement-heading"><h3><label htmlFor="measurement-interval">집계 주기</label></h3><output htmlFor="measurement-interval">{measurementLabel(draft)}</output></div>
-      <p>오늘 누적치와 최근 소비량을 갱신하는 간격</p>
+      <p>오늘 관측 누적치를 갱신하는 간격</p>
       {/* Preview while dragging; persist only on release or keyboard completion. */}
       <input id="measurement-interval" className="measurement-slider" type="range" min="1" max="180" step="1" value={draft} data-saved-value={interval}
         aria-label="집계 주기 슬라이더" aria-valuetext={measurementLabel(draft)} style={{ '--range-progress': `${(draft - 1) / 179 * 100}%` }}
@@ -370,9 +355,11 @@ function MeasurementSettings({ state, onChange }) {
         onKeyUp={event => commit(Number(event.currentTarget.value))} onBlur={event => commit(Number(event.currentTarget.value))} />
       <div className="measurement-range-labels"><span>1m</span><span>3h</span></div>
       <div className="measurement-options interval-options">{intervalOptions.map(minutes => <button key={minutes} aria-label={`집계 주기 ${measurementLabel(minutes)}`} aria-pressed={draft === minutes} className={draft === minutes ? 'selected' : ''} onClick={() => commit(minutes)}>{measurementLabel(minutes)}</button>)}</div>
+      <p className="measurement-hint">집계 주기는 1분~3시간, 1분 단위입니다. 잔여량 조회 주기는 그대로입니다.</p>
     </section>
-    <section><h3>비교 구간</h3><p>마지막 집계 시각부터 거슬러 볼 소비량 범위</p><div className="measurement-options">{measurementOptions.map(option => <button key={option.minutes} aria-label={`비교 구간 ${option.label}`} aria-pressed={(state.measurementWindowMinutes ?? 30) === option.minutes} className={(state.measurementWindowMinutes ?? 30) === option.minutes ? 'selected' : ''} onClick={() => onChange('window', option.minutes)}>{option.label}</button>)}</div></section>
-    <p className="measurement-hint">집계 주기는 1분~3시간, 1분 단위로 설정합니다. 잔여량 조회는 기존대로 유지되며 새 수신값이 있어야 집계됩니다.</p>
+    <section><h3>추가 분석</h3><p>필요할 때 그래프를 열어 기간별 소비량을 살펴볼 수 있습니다.</p>
+      <button className="account-secondary trend-open" aria-label="그래프 보기" onClick={onTrends}>그래프 보기<ChevronRight size={13} /></button>
+    </section>
   </div>;
 }
 
@@ -380,7 +367,8 @@ function SettingsHome({ state, onNavigate, onQuit }) {
   const sections = [
     ...(state.platform === 'macos' ? [] : [{ page: 'updates', title: '앱 업데이트', label: '앱 업데이트 설정', description: 'GitHub Releases · 확인 · 다운로드 · 재시작', value: state.update?.canApply ? '적용 대기' : state.update?.canDownload ? '새 버전' : `v${state.update?.currentVersion ?? ''}`, Icon: RefreshCw }]),
     { page: 'accounts', title: '계정 관리', description: '추가 · 로그인 · 별명 · 삭제', value: `${managedAccounts(state).length}개 계정`, Icon: UserRound },
-    { page: 'measurement', title: '사용량 측정', description: '관측 사용량 계산 기준', value: `집계 ${measurementLabel(state.measurementIntervalMinutes ?? 30)} · 비교 ${measurementLabel(state.measurementWindowMinutes ?? 30)}`, Icon: Clock3 },
+    { page: 'history', title: '사용 기록', description: '일별 · 시간별 · 주별 관측 기록', value: '최근 90일', Icon: ChartNoAxesColumn },
+    { page: 'measurement', title: '사용량 측정', description: '관측 사용량 계산 기준', value: `집계 ${measurementLabel(state.measurementIntervalMinutes ?? 30)}`, Icon: Clock3 },
     { page: 'appearance', title: '화면 설정', description: state.platform === 'macos' ? '화면 전환 애니메이션' : '애니메이션 · 창 고정 · 위치', value: state.animateTransitions !== false ? '애니메이션 켜짐' : '애니메이션 꺼짐', Icon: LayoutPanelTop }
   ];
   return <>
@@ -417,17 +405,24 @@ function AppearanceSettings({ state, onAction }) {
   </div>;
 }
 
-const settingsPages = { settings: '설정', accounts: '계정 관리', providers: '계정 추가', measurement: '사용량 측정', appearance: '화면 설정', updates: '앱 업데이트' };
-function SettingsPanel({ page, onBack, onClose, notice, children }) {
+function SettingsPanel({ path, onBack, onClose, onNavigate, notice, children }) {
+  const page = path.at(-1);
+  const backPage = path.at(-2);
+  const backLabel = `${settingsPages[backPage] ?? '사용량'}${['accounts', 'providers', 'trends', 'updates'].includes(backPage) ? '로' : '으로'} 돌아가기`;
   const heading = useRef(null);
   const content = useRef(null);
   useEffect(() => { content.current.scrollTop = 0; heading.current.focus({ preventScroll: true }); }, [page]);
   return <section className="menu settings-panel" aria-labelledby="settings-title">
     <header className="settings-heading">
-      {page === 'settings' ? <Settings className="settings-heading-icon" size={16} /> : <button className="icon-button" aria-label={page === 'providers' ? '계정 관리로 돌아가기' : '설정으로 돌아가기'} onClick={onBack}><ArrowLeft size={16} /></button>}
+      <button className="icon-button" aria-label={backLabel} title={backLabel} onClick={onBack}><ArrowLeft size={16} /></button>
       <h2 id="settings-title" ref={heading} tabIndex={-1}>{settingsPages[page]}</h2>
       <button className="icon-button" aria-label="설정 닫기" title="사용량으로 돌아가기" onClick={onClose}><X size={16} /></button>
     </header>
+    <nav className="settings-breadcrumbs" aria-label="현재 화면 경로">
+      <ol><li><button onClick={onClose}>사용량</button></li>{path.map((item, index) => <li key={item}>
+        <ChevronRight size={10} aria-hidden="true" />{index === path.length - 1 ? <span aria-current="page">{settingsPages[item]}</span> : <button onClick={() => onNavigate(item)}>{settingsPages[item]}</button>}
+      </li>)}</ol>
+    </nav>
     <div className="settings-content" ref={content}>
       {notice && <div role="status" className="notice settings-notice">{notice}</div>}
       {children}
@@ -437,9 +432,16 @@ function SettingsPanel({ page, onBack, onClose, notice, children }) {
 
 function App() {
   const [state, setState] = useState(latest);
+  const setTrendsVisible = useCallback(visible => { if (native) send('setTrendsVisible', { visible }); }, []);
+  const setHistoryVisible = useCallback(visible => {
+    if (native) send('setHistoryVisible', { visible });
+    else setState(state => ({ ...state, history: visible ? (preview ? previewHistory() : { series: [] }) : null }));
+  }, []);
   const menuBar = state.platform === 'macos';
-  const [menu, setMenu] = useState(restoredUI?.menu ?? false);
-  const [menuPage, setMenuPage] = useState(restoredUI?.menuPage ?? 'settings');
+  const [settingsPath, setSettingsPath] = useState(() => restoreSettingsPath(restoredUI, previewTrends));
+  const menu = settingsPath.length > 0;
+  const menuPage = settingsPath.at(-1) ?? 'settings';
+  const closeSettings = () => setSettingsPath([]);
   const [expandedAccountId, setExpandedAccountId] = useState(restoredUI?.expandedAccountId ?? null);
   const pendingAccount = useRef(restoredUI?.pendingAccount ?? null);
   const reduce = useReducedMotion();
@@ -474,10 +476,10 @@ function App() {
       const focused = document.activeElement;
       const focus = focused?.id ? { id: focused.id,
         ...(Number.isInteger(focused.selectionStart) ? { start: focused.selectionStart, end: focused.selectionEnd } : {}) } : null;
-      return { menu, menuPage, expandedAccountId, pendingAccount: pendingAccount.current, form, scroll, focus };
+      return { menu, menuPage, settingsPath, expandedAccountId, pendingAccount: pendingAccount.current, form, scroll, focus, historyView: window.aiUsageHistoryView, trendView: window.aiUsageTrendView };
     };
     return () => { delete window.aiUsageCaptureUI; };
-  }, [menu, menuPage, expandedAccountId]);
+  }, [settingsPath, menu, menuPage, expandedAccountId]);
   useEffect(() => {
     if (!restoredUI) return;
     let frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => {
@@ -513,7 +515,7 @@ function App() {
     observer.observe(view);
     return () => observer.disconnect();
   }, [mode, revision, transitionReduce]);
-  useEffect(() => { if (mode === 2) setMenu(false); }, [mode]);
+  useEffect(() => { if (mode === 2) setSettingsPath([]); }, [mode]);
   useEffect(() => {
     if (!pendingAccount.current) return;
     const { service, previous } = pendingAccount.current;
@@ -546,7 +548,7 @@ function App() {
     else if (name === 'checkUpdates') setState(s => ({ ...s, update: { phase: 'upToDate', currentVersion: '1.1.0', message: '디자인 미리보기입니다. 실제 업데이트는 설치된 앱에서 확인해주세요.', canCheck: true } }));
     else if (name === 'refresh' && preview) { setState(s => ({ ...s, busy: true })); setTimeout(() => setState(s => ({ ...s, busy: false })), 2200); }
   };
-  const openSettingsPage = page => { setMenuPage(page); setMenu(true); };
+  const openSettingsPage = page => setSettingsPath(path => visitSettingsPage(path, page));
   const openAccounts = id => { setExpandedAccountId(id ?? null); openSettingsPage('accounts'); };
   const openPicker = () => openSettingsPage('providers');
   const openMeasurements = () => openSettingsPage('measurement');
@@ -556,7 +558,7 @@ function App() {
   };
   const addProvider = id => {
     pendingAccount.current = { service: id, previous: state.providers.map(provider => provider.id) };
-    setMenuPage('accounts');
+    setSettingsPath(finishAddingAccount);
     if (native) send('addProvider', { provider: id });
     else setState(s => {
       const added = s.providers.some(p => p.id === id);
@@ -605,28 +607,30 @@ function App() {
   </motion.div> : <motion.div key={`card-${mode}`} data-view={mode} className={`widget ${menu ? 'settings-open' : ''}`} style={{ '--card-max-height': `${(state.maxCardHeight ?? 880) - 2}px`, ...(native ? { width: 302 } : {}) }}
     initial={transitionReduce ? false : { opacity: 0, y: 4 }} animate={{ opacity: changing ? 0 : 1, y: changing ? 4 : 0 }} exit={{ opacity: 0, transition: { duration: transitionReduce ? 0 : .08 } }}
     transition={{ duration: transitionReduce ? 0 : changing ? .08 : .13, ease: [.22, 1, .36, 1] }}>
-    {menu ? <SettingsPanel page={menuPage} onBack={() => setMenuPage(menuPage === 'providers' ? 'accounts' : 'settings')} onClose={() => setMenu(false)} notice={state.notice}>
+    {menu ? <SettingsPanel path={settingsPath} onBack={() => setSettingsPath(path => path.slice(0, -1))} onClose={closeSettings} onNavigate={openSettingsPage} notice={state.notice}>
       {menuPage === 'accounts' ? <Accounts state={state} onAdd={openPicker} onRemove={removeProvider} onRestore={restoreProvider} onRename={renameAccount} expandedId={expandedAccountId} onExpand={setExpandedAccountId} />
         : menuPage === 'providers' ? <ProviderPicker state={state} onAdd={addProvider} />
-        : menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} />
+        : menuPage === 'measurement' ? <MeasurementSettings state={state} onChange={changeMeasurement} onTrends={() => openSettingsPage('trends')} />
+        : menuPage === 'trends' ? <UsageTrends providers={state.providers} options={measurementOptions} windowMinutes={state.measurementWindowMinutes ?? 30} onWindow={minutes => changeMeasurement('window', minutes)} onVisible={setTrendsVisible} sourceLabel={providerName} initialView={restoredUI?.trendView} />
+        : menuPage === 'history' ? <UsageHistory history={state.history} accounts={state.accounts ?? []} onVisible={setHistoryVisible} initialView={restoredUI?.historyView} />
         : menuPage === 'appearance' ? <AppearanceSettings state={state} onAction={action} />
         : menuPage === 'updates' && !menuBar ? <UpdateSettings update={state.update} onAction={action} authBusy={state.authBusy} />
         : <SettingsHome state={state} onNavigate={page => page === 'accounts' ? openAccounts() : openSettingsPage(page)} onQuit={() => action('close')} />}
     </SettingsPanel> : <>
     <header className="header">
-      <div className="drag-zone" title={menuBar ? "AI Usage" : "드래그해서 이동"}><button className="logo-toggle" aria-label={menuBar ? "메뉴 막대로 닫기" : "로고만 표시"} title={menuBar ? "메뉴 막대로 닫기 · 조회는 계속됩니다" : "로고만 표시 · 다시 누르면 이 화면으로 돌아오기"} onClick={() => { setMenu(false); action('toggleLogo'); }}><Triangle connected={allConnected} active={!logoMoving && (state.busy || state.authBusy)} rotation={logoRotation} /></button><div className="wordmark">AI<span>USAGE</span></div>{!menuBar && <Grip className="grip" size={13} />}</div>
+      <div className="drag-zone" title={menuBar ? "AI Usage" : "드래그해서 이동"}><button className="logo-toggle" aria-label={menuBar ? "메뉴 막대로 닫기" : "로고만 표시"} title={menuBar ? "메뉴 막대로 닫기 · 조회는 계속됩니다" : "로고만 표시 · 다시 누르면 이 화면으로 돌아오기"} onClick={() => { closeSettings(); action('toggleLogo'); }}><Triangle connected={allConnected} active={!logoMoving && (state.busy || state.authBusy)} rotation={logoRotation} /></button><div className="wordmark">AI<span>USAGE</span></div>{!menuBar && <Grip className="grip" size={13} />}</div>
       <div className="header-actions">
         {menuBar && refreshButton}
         {!menuBar && <button className={`icon-button ${state.pinned ? 'selected' : ''}`} title={state.pinned ? '항상 위 고정 해제' : '항상 위에 고정'} aria-label="항상 위에 고정" aria-pressed={state.pinned} onClick={() => action('pin')}><Pin size={13} /></button>}
         <button className="icon-button" title="AI 계정 추가" aria-label="AI 추가" onClick={openPicker}><CirclePlus size={14} /></button>
-        <button className="icon-button view-toggle" title={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-label={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-pressed={mode === 0} onClick={() => { setMenu(false); action('toggleDetails'); }}>{mode === 0 ? <Rows3 size={14} /> : <LayoutPanelTop size={14} />}</button>
+        <button className="icon-button view-toggle" title={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-label={mode === 0 ? '간략히 보기' : '자세히 보기'} aria-pressed={mode === 0} onClick={() => { closeSettings(); action('toggleDetails'); }}>{mode === 0 ? <Rows3 size={14} /> : <LayoutPanelTop size={14} />}</button>
         <button className={`icon-button settings-button ${state.update?.canDownload || state.update?.canApply ? 'has-update' : ''}`} title={state.update?.canApply ? '설정 · 업데이트 적용 대기' : state.update?.canDownload ? '설정 · 새 버전 있음' : '설정'} aria-label="설정" onClick={() => openSettingsPage('settings')}><Settings size={17} /></button>
       </div>
     </header>
       {state.providers.length === 0 ? <EmptyDashboard onAdd={openPicker} /> : mode === 1 ? <motion.div key="compact" className="compact" data-count={state.providers.length} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : .14 }}>
-        {state.providers.map(p => <CompactProvider key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} intervalMinutes={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} />)}
+        {state.providers.map(p => <CompactProvider key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} intervalMinutes={state.measurementIntervalMinutes ?? 30} windowMinutes={state.measurementWindowMinutes ?? 30} onMeasurements={openMeasurements} />)}
       </motion.div> : <motion.main key="expanded" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : .14 }}>
-        <div className="cards">{state.providers.map(p => <ProviderCard key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} busy={state.busy} onConnect={() => openAccounts(p.id)} measurementInterval={state.measurementIntervalMinutes ?? 30} onMeasurements={openMeasurements} services={state.serviceCatalog ?? catalog} />)}</div>
+        <div className="cards">{state.providers.map(p => <ProviderCard key={p.id} provider={p} account={state.accounts?.find(a => a.id === p.id)} busy={state.busy} onConnect={() => openAccounts(p.id)} measurementInterval={state.measurementIntervalMinutes ?? 30} measurementWindow={state.measurementWindowMinutes ?? 30} onMeasurements={openMeasurements} services={state.serviceCatalog ?? catalog} />)}</div>
       </motion.main>}
     {!menuBar && <footer><span className="footer-status"><span className={`pulse-dot ${state.busy || state.authBusy ? 'working' : ''}`} />{state.authBusy ? '로그인 완료 대기 중' : state.busy ? '사용량 업데이트 중' : state.pinned ? '항상 위에 고정됨' : '고정 해제됨'}</span>{refreshButton}</footer>}
     </>}

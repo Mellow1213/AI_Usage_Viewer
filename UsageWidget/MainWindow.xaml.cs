@@ -17,6 +17,9 @@ public partial class MainWindow : Window
     private readonly string _widgetUrl;
     private readonly string _dataDirectory;
     private readonly DailyUsageTracker _daily;
+    private readonly UsageHistory _history;
+    private bool _historyVisible;
+    private bool _trendsVisible;
     private AiAccountPreferences _accountProfiles;
     private readonly Dictionary<string, IAccountSession> _sessions;
     private readonly Func<CodexProfile, CodexClient>? _codexFactory;
@@ -81,6 +84,7 @@ public partial class MainWindow : Window
         _dataDirectory = dataDirectory;
         WidgetStorage.UseDataDirectory(dataDirectory);
         _daily = new(dataDirectory);
+        _history = new(dataDirectory);
         _testMode = testMode;
         _checkUpdatesOnStartup = checkUpdatesOnStartup ?? !testMode;
         _foregroundWindow = foregroundWindow ?? GetForegroundWindow;
@@ -94,6 +98,8 @@ public partial class MainWindow : Window
         _accountProfiles = AiAccountPreferences.Read(dataDirectory, _connections);
         _sessions = _accountProfiles.Profiles.ToDictionary(profile => profile.Id, CreateSession);
         _dashboard = DashboardPreferences.Read(dataDirectory, _connections);
+        foreach (var session in _sessions.Values.Where(s => _dashboard.ProviderIds.Contains(s.Profile.Id)))
+            BeginAutoConnection(session);
         _measurement = MeasurementPreferences.Read(dataDirectory);
         _updates = updates ?? new WidgetUpdater(dataDirectory);
         _updates.Changed += () => { if (!_closed) Publish(); };
@@ -108,18 +114,20 @@ public partial class MainWindow : Window
         };
         SizeChanged += (_, _) => Surface.Clip = new RectangleGeometry(new Rect(0, 0, ActualWidth, ActualHeight), 22, 22);
         Loaded += async (_, _) => await InitializeAsync();
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
         _timer.Tick += async (_, _) =>
         {
             if (_closed || !_ready) return;
             if (!AuthBusy && !_busy)
                 foreach (var session in _sessions.Values.OfType<ClaudeSession>().Where(s => _dashboard.ProviderIds.Contains(s.Profile.Id)))
-                    session.Usage = session.Account.Status == "connected" ? session.ReadSnapshot() with { Id = session.Profile.Id } : NotConnected(session.Profile.Id);
+                    if (session.Account.Status == "connected") session.Usage = session.ReadSnapshot() with { Id = session.Profile.Id };
             Publish();
             if (!_testMode && _dashboard.ProviderIds.Length > 0 && !_busy && !AuthBusy && DateTimeOffset.UtcNow - _lastRefreshAttempt >= TimeSpan.FromSeconds(60)) await RefreshAsync();
         };
         Closing += (_, _) =>
         {
             _closed = true;
+            Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
             StopResize();
             _timer.Stop();
             DisposePresence();
@@ -141,6 +149,12 @@ public partial class MainWindow : Window
         var args = Environment.GetCommandLineArgs();
         var index = Array.IndexOf(args, "--data-dir");
         return index >= 0 && index + 1 < args.Length ? Path.GetFullPath(args[index + 1]) : WidgetStorage.DataDirectory;
+    }
+
+    private void OnPowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == Microsoft.Win32.PowerModes.Resume && !_closed)
+            Dispatcher.BeginInvoke(() => { if (!_closed) _history.Interrupt(); });
     }
 
     private async Task InitializeAsync()
@@ -209,7 +223,7 @@ public partial class MainWindow : Window
                     _ready = true;
                     Startup.Visibility = Visibility.Collapsed;
                     Browser.Visibility = Visibility.Visible;
-                    foreach (var session in _sessions.Values) session.Usage = NotConnected(session.Profile.Id);
+                    // A UI handshake must preserve pending connections and already received usage.
                     Publish(force: true);
                     _timer.Start();
                     UpdatePresence();
@@ -221,11 +235,18 @@ public partial class MainWindow : Window
                     if (!_testMode && _dashboard.ProviderIds.Length > 0) await RefreshAsync();
                     break;
                 case "refresh": await RefreshAsync(true); break;
+                case "setHistoryVisible":
+                    _historyVisible = root.TryGetProperty("visible", out var historyVisible) && historyVisible.ValueKind == JsonValueKind.True;
+                    Publish(); break;
                 case "checkUpdates": await _updates.CheckAsync(); break;
                 case "downloadUpdate": await _updates.DownloadAsync(); break;
                 case "applyUpdate":
                     if (AuthBusy) { _notice = "로그인을 완료하거나 취소한 뒤 업데이트를 적용해주세요."; Publish(); }
                     else if (_updates.PrepareRestart()) Close();
+                    break;
+                case "setTrendsVisible":
+                    _trendsVisible = root.TryGetProperty("visible", out var trendsVisible) && trendsVisible.ValueKind == JsonValueKind.True;
+                    Publish();
                     break;
                 case "setMeasurementInterval":
                 case "setMeasurementWindow":
@@ -354,11 +375,14 @@ public partial class MainWindow : Window
     internal async Task RefreshAsync(bool forceClaude = false)
     {
         if (_busy || _closed || AuthBusy) return;
+        var sessions = _sessions.Values.Where(session => _dashboard.ProviderIds.Contains(session.Profile.Id)).ToArray();
+        // Mark every saved account before publishing, including readers waiting for a concurrency slot.
+        foreach (var session in sessions) BeginAutoConnection(session);
         _busy = true; _lastRefreshAttempt = DateTimeOffset.UtcNow; Publish();
         try
         {
             using var readers = new SemaphoreSlim(3);
-            var tasks = _sessions.Values.Where(session => _dashboard.ProviderIds.Contains(session.Profile.Id))
+            var tasks = sessions
                 .Select(async session =>
                 {
                     await readers.WaitAsync(_lifetime.Token);
@@ -378,7 +402,9 @@ public partial class MainWindow : Window
         try
         {
             var account = (await session.ReadAccountAsync(_lifetime.Token)) with { Id = id };
-            if (!string.Equals(account.Email, session.Account.Email, StringComparison.OrdinalIgnoreCase)) session.Usage = NotConnected(id);
+            if (account.Status == "connected" && (session.Usage.Status == "connecting"
+                || !string.Equals(account.Email, session.Account.Email, StringComparison.OrdinalIgnoreCase)))
+                session.Usage = new(id, "loading", "사용량을 조회하고 있습니다.", []);
             session.Account = account;
             session.Usage = account.Status == "connected"
                 ? (await session.ReadUsageAsync(force, _testMode && _claudeFactory is null && session is ClaudeSession, _lifetime.Token)) with { Id = id }
@@ -392,7 +418,14 @@ public partial class MainWindow : Window
             session.Usage = session.Usage with { Status = "error", Message = ex is FileNotFoundException
                 ? $"{AiServices.Name(session.Profile.Service)} CLI를 설치한 뒤 로그인해주세요." : "조회 실패 · CLI 로그인과 네트워크를 확인해주세요." };
         }
-        finally { session.ReleaseIdleResources(); }
+        finally { session.ReleaseIdleResources(); if (!_closed) Publish(); }
+    }
+
+    private static void BeginAutoConnection(IAccountSession session)
+    {
+        if (!session.Profile.Enabled || session.Account.Status == "connected") return;
+        session.Account = session.Account with { Status = "connecting", Message = "자동 연결 중입니다…" };
+        session.Usage = session.Usage with { Status = "connecting", Message = "자동 연결 중입니다…" };
     }
 
     private IAccountSession CreateSession(AiAccountProfile profile) => profile.Service switch
@@ -508,11 +541,14 @@ public partial class MainWindow : Window
                 ? $"{account.Source}:{account.Email.ToLowerInvariant()}:{usage.Plan ?? account.Plan}" : null;
         var now = DateTimeOffset.UtcNow;
         var interval = _testMode ? TimeSpan.Zero : TimeSpan.FromMinutes(_measurement.IntervalMinutes);
+        _history.RetainProviders(_dashboard.ProviderIds);
         var providers = _dashboard.ProviderIds.Select(id =>
         {
             var session = _sessions[id];
             var usage = session.Usage with { Id = id, Name = session.Profile.DisplayName, Service = session.Profile.Service, DefaultName = session.Profile.Name };
-            return _daily.Observe(usage, Identity(session.Account, usage), now, interval, _measurement.WindowMinutes);
+            _history.Observe(usage, Identity(session.Account, usage), now);
+            usage = _daily.Observe(usage, Identity(session.Account, usage), now, interval, _measurement.WindowMinutes);
+            return _trendsVisible ? _history.WithTrends(usage, Identity(session.Account, usage), now) : usage;
         }).ToArray();
         var payload = JsonSerializer.Serialize(new
         {
@@ -523,6 +559,7 @@ public partial class MainWindow : Window
             logoRotation = _logoRotation, logoRotationStep = _logoRotationStep, anchorCorner = (int)_anchorCorner, lastCardView = (int)_lastCardView,
             measurementIntervalMinutes = _measurement.IntervalMinutes, measurementWindowMinutes = _measurement.WindowMinutes,
             update = _updates.State,
+            history = _historyVisible ? _history.Snapshot(_sessions.Keys) : null,
             maxCardHeight = MaximumCardHeight(), serviceCatalog = AiServices.Catalog,
             accounts = _sessions.Values.Select(session => session.Account with
                 { Name = session.Profile.DisplayName, Service = session.Profile.Service, Enabled = session.Profile.Enabled,
@@ -585,6 +622,7 @@ public partial class MainWindow : Window
         var dashboard = new DashboardPreferences([.. _dashboard.ProviderIds, id]);
         WidgetStorage.Write(Path.Combine(_dataDirectory, "dashboard.json"), dashboard);
         _dashboard = dashboard;
+        BeginAutoConnection(session);
         Publish();
         if (!_testMode && session.Profile.Enabled) await RefreshAsync();
     }

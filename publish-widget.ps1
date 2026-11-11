@@ -66,21 +66,7 @@ try {
     } elseif (-not $ResumeDraft) { throw 'Release output already exists. Use a new version, or inspect and resume this exact build with -ResumeDraft.' }
     $provenance = Get-Content -LiteralPath (Join-Path $packageDirectory 'release-build.json') -Raw | ConvertFrom-Json
     if ($provenance.sourceCommit -ne $commit -or $provenance.version -ne $Version) { throw 'Existing packages were built from a different source/version.' }
-    $macFiles = foreach ($platform in @(@{ Runner='macos-14'; Arch='arm64' }, @{ Runner='macos-15-intel'; Arch='x86_64' })) {
-        $macDirectory = Join-Path $packageDirectory ('macos-' + $platform.Arch)
-        if (-not (Test-Path -LiteralPath $macDirectory)) {
-            $null = Invoke-ReleaseCommand gh @('run', 'download', $verificationRun, '--repo', $repository,
-                '--name', ('macos-' + $platform.Runner), '--dir', $macDirectory)
-        }
-        $macBuild = Get-Content -LiteralPath (Join-Path $macDirectory ('build-' + $platform.Arch + '.json')) -Raw | ConvertFrom-Json
-        if ($macBuild.sourceCommit -ne $commit -or $macBuild.version -ne $Version -or $macBuild.architecture -ne $platform.Arch) {
-            throw 'Mac artifacts must come from the same verified source commit, version and CPU architecture.'
-        }
-        $macName = "AIUsageWidget-$Version-macos-$($platform.Arch).zip"
-        Copy-Item -LiteralPath (Join-Path $macDirectory $macName) -Destination (Join-Path $packageDirectory $macName) -Force
-        Join-Path $packageDirectory $macName
-    }
-    $provenance | Add-Member -NotePropertyName macosVerificationRunId -NotePropertyValue $verificationRun -Force
+    $provenance | Add-Member -NotePropertyName desktopVerificationRunId -NotePropertyValue $verificationRun -Force
     $provenance | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $packageDirectory 'release-build.json') -Encoding utf8
     $feed = Get-Content -LiteralPath (Join-Path $packageDirectory 'releases.win.json') -Raw | ConvertFrom-Json
     if (@($feed.Assets).Count -ne 1 -or $feed.Assets[0].PackageId -ne 'Mellow.AIUsageViewer' -or
@@ -92,7 +78,6 @@ try {
         (Get-FileHash -LiteralPath $fullPackage -Algorithm SHA256).Hash -ne $asset.SHA256) { throw 'Package size/hash does not match the update feed.' }
     $files = @($asset.FileName, 'Mellow.AIUsageViewer-win-Setup.exe', 'Mellow.AIUsageViewer-win-Portable.zip',
         'releases.win.json', 'RELEASES', 'release-build.json') | ForEach-Object { Join-Path $packageDirectory $_ }
-    $files += $macFiles
     $checksums = foreach ($file in $files) {
         '{0}  {1}' -f (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant(), [IO.Path]::GetFileName($file)
     }

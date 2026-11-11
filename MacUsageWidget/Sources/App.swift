@@ -93,7 +93,7 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             store.start()
             publish()
             wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in await self?.store.refresh() }
+                Task { @MainActor [weak self] in self?.store.interruptHistory(); await self?.store.refresh() }
             }
             if benchmarkDirectory != nil { runMemoryBenchmark() }
             else if smokeDirectory != nil {
@@ -634,6 +634,50 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
             NSApp.terminate(nil)
         }
     }
+    private func verifyRecentTrends() async throws -> Bool {
+        let cardsClear = try await evaluateWebContent("!document.querySelector('.recent-trend')") as? Bool == true
+        try await evaluateWebContent("document.querySelector('[aria-label=\"설정\"]').click()")
+        try await Task.sleep(nanoseconds: 150_000_000)
+        try await evaluateWebContent("document.querySelector('[aria-label=\"사용량 추이\"]').click()")
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let data = try JSONSerialization.data(withJSONObject: store.state(maxHeight: maxHeight))
+        let state = String(decoding: data, as: UTF8.self)
+        try await evaluateWebContent("""
+        window.__recentOriginal = \(state);
+        const received = Date.now() / 1000;
+        window.__recentFixture = { ...window.__recentOriginal, measurementWindowMinutes: 30,
+          providers: window.__recentOriginal.providers.map(provider => ({ ...provider,
+            windows: provider.windows.map(quota => ({ ...quota, trend: provider.id === 'codex'
+              ? { points: [[received-2400,5],[received-300,2]], coverage: [[received-3000,received-2400],[received-600,received-60]] }
+              : { points: [], coverage: [] } })) })) };
+        window.aiUsageReceive(window.__recentFixture);
+        """)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let halfHour = try await evaluateWebContent("document.getElementById('settings-title').textContent==='사용량 추이' && document.querySelector('.recent-trend').dataset.total==='2' && document.getElementById('trend-source').options.length===4") as? Bool == true
+        try await evaluateWebContent("window.aiUsageReceive({...window.__recentFixture, measurementWindowMinutes:60})")
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let hour = try await evaluateWebContent("document.querySelector('.recent-trend').dataset.total==='7' && document.querySelectorAll('.recent-bucket').length<24 && Math.abs(+document.querySelector('.recent-trend').dataset.end-Date.now())<1000 && document.documentElement.scrollWidth<=innerWidth") as? Bool == true
+        try await evaluateWebContent("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
+        try await Task.sleep(nanoseconds: 500_000_000)
+        publish(force: true)
+        let closed = try await evaluateWebContent("!document.querySelector('.recent-trend') && document.querySelectorAll('.provider').length===2") as? Bool == true
+        return cardsClear && halfHour && hour && closed
+    }
+    private func verifyHistoryScreen() async throws -> Bool {
+        try await evaluateWebContent("document.querySelector('[aria-label=\"설정\"]').click()")
+        try await Task.sleep(nanoseconds: 150_000_000)
+        try await evaluateWebContent("document.querySelector('[aria-label=\"사용 기록\"]').click()")
+        try await Task.sleep(nanoseconds: 400_000_000)
+        let daily = try await evaluateWebContent("document.querySelectorAll('.history-column').length===7 && document.querySelector('.history-modes [aria-pressed=true]').textContent==='일별' && !!document.querySelector('.history-column.complete') && !!document.querySelector('.history-column.missing') && !!document.querySelector('.history-column.partial') && document.querySelector('.history-summary strong').textContent==='14%p' && document.querySelector('.settings-panel').getBoundingClientRect().bottom<=innerHeight+2") as? Bool == true
+        try await evaluateWebContent("[...document.querySelectorAll('.history-modes button')].find(button=>button.textContent==='시간별').click()")
+        let hourly = try await evaluateWebContent("document.querySelectorAll('.history-column').length>=23 && document.querySelector('.history-chart-scroll').scrollWidth>document.querySelector('.history-chart-scroll').clientWidth") as? Bool == true
+        try await evaluateWebContent("[...document.querySelectorAll('.history-modes button')].find(button=>button.textContent==='주별').click()")
+        let weekly = try await evaluateWebContent("document.querySelectorAll('.history-column').length===8 && document.querySelector('.history-summary strong').textContent==='14%p'") as? Bool == true
+        try await evaluateWebContent("document.querySelector('[aria-label=\"설정 닫기\"]').click()")
+        try await Task.sleep(nanoseconds: 150_000_000)
+        let restored = try await evaluateWebContent("!document.querySelector('.usage-history') && document.querySelectorAll('.provider').length===2") as? Bool == true
+        return daily && hourly && weekly && restored
+    }
     private func runSmoke() {
         guard smokeDirectory != nil, !smokeStarted else { return }; smokeStarted = true
         Task {
@@ -668,15 +712,19 @@ final class LocalWebContent: NSObject, WKURLSchemeHandler {
                     try JSON.writeData(png, to: folder.appendingPathComponent("menu-bar.png"))
                 }
                 let cardFits = (layout["card"] as? Double ?? .infinity) <= (layout["viewport"] as? Double ?? 0) + 2
+                let trendsPassed = try await verifyRecentTrends()
+                checkpoint("trends-complete")
+                let historyPassed = try await verifyHistoryScreen()
+                checkpoint("history-complete")
                 let memory = CommandLine.arguments.contains("--verify-memory") ? try await verifyIdleWebRelease() : ["passed": true, "skipped": true]
                 checkpoint("memory-complete")
-                let passed = reducedMotionHonored && memory["passed"] as? Bool == true && first["platform"] as? Bool == true && (first["cards"] as? Int ?? 0) == 2 && compact && cardFits
+                let passed = historyPassed && trendsPassed && reducedMotionHonored && memory["passed"] as? Bool == true && first["platform"] as? Bool == true && (first["cards"] as? Int ?? 0) == 2 && compact && cardFits
                     && layout["refreshInHeader"] as? Bool == true && layout["footerRemoved"] as? Bool == true
                     && fastRefresh["passed"] as? Bool == true && slowRefresh["passed"] as? Bool == true
                     && hiddenRefresh["passed"] as? Bool == true
                     && interruptedRefresh["passed"] as? Bool == true && reopenedRefresh["passed"] as? Bool == true
                     && compactRotation["passed"] as? Bool == true && expandedRotation["passed"] as? Bool == true
-                finishSmoke(["passed": passed, "readyHandshake": ready, "statusItem": item.button != nil,
+                finishSmoke(["passed": passed, "historyPassed": historyPassed, "trendsPassed": trendsPassed, "readyHandshake": ready, "statusItem": item.button != nil,
                              "renderedCards": first["cards"] ?? 0, "compactMode": compact, "cardFits": cardFits, "layout": layout, "memory": memory,
                              "fastRefresh": fastRefresh, "reducedMotionHonored": reducedMotionHonored, "slowRefresh": slowRefresh, "hiddenRefresh": hiddenRefresh,
                              "compactRotation": compactRotation, "expandedRotation": expandedRotation,

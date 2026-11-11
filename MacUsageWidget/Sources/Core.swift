@@ -112,12 +112,18 @@ struct DailyUsage: Codable {
     var windowMinutes: Int
     var isCurrentDay: Bool
 }
+struct UsageTrend: Codable {
+    var points: [[Double]] = []
+    var coverage: [[Double]] = []
+    var error: String?
+}
 struct Quota: Codable {
     var key: String
     var label: String
     var usedPercent: Double
     var resetsAt: Double?
     var today: DailyUsage?
+    var trend: UsageTrend?
     var remainingPercent: Double { max(0, min(100, 100 - usedPercent)) }
     var object: Object { var value = JSON.object(self); value["remainingPercent"] = remainingPercent; return value }
 }

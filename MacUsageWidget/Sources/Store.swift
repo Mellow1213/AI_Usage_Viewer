@@ -9,6 +9,9 @@ import AppKit
     private var clients: [String: AccountClient] = [:]
     private var lastClaudeAttempt: [String: Date] = [:]
     private let tracker: DailyTracker
+    private let history: UsageHistory
+    private var historyVisible = false
+    private var trendsVisible = false
     private var timer: Timer?
     private var refreshTask: Task<Void, Never>?
     private var loginTask: Task<Void, Never>?
@@ -27,7 +30,17 @@ import AppKit
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         preferences = JSON.read(root.appendingPathComponent("mac-settings.json"), as: Preferences.self) ?? Preferences()
         preferences.normalize(); tracker = DailyTracker(root: root)
+        if fixture && !FileManager.default.fileExists(atPath: root.appendingPathComponent("usage-history.json").path) {
+            let today = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+            let record = UsageHistory.Series(id: "fixture-history", providerId: "codex", label: "주간", startedAt: today - 6 * 86400,
+                lastObservedAt: today, points: [[today - 4 * 86400 + 43200, 5], [today - 3 * 86400 + 43200, 9]],
+                coverage: [[today - 6 * 86400, today - 5 * 86400], [today - 4 * 86400 + 32400, today - 4 * 86400 + 64800],
+                           [today - 3 * 86400, today - 86400]])
+            try JSON.write([record], to: root.appendingPathComponent("usage-history.json"))
+        }
+        history = UsageHistory(root: root)
         for profile in preferences.profiles { reset(profile) }
+        for profile in preferences.profiles where preferences.visible.contains(profile.id) { beginAutoConnection(profile) }
         if fixture {
             preferences.visible = ["codex", "claude"]
             for profile in preferences.profiles {
@@ -83,12 +96,20 @@ import AppKit
     private func errorMessage(_ error: Error) -> String {
         (error as? WidgetError)?.errorDescription ?? "작업을 완료하지 못했습니다. CLI 설치와 계정 연결을 확인해주세요."
     }
+    private func beginAutoConnection(_ profile: Profile) {
+        guard profile.enabled, accounts[profile.id]?.status != "connected" else { return }
+        accounts[profile.id]?.status = "connecting"
+        accounts[profile.id]?.message = "자동 연결 중입니다…"
+        usages[profile.id]?.status = "connecting"
+        usages[profile.id]?.message = "자동 연결 중입니다…"
+    }
     func refresh(force: Bool = false) async {
         guard !busy, loginProvider == nil, !stopped, !fixture else { return }
+        let profiles = preferences.profiles.filter { preferences.visible.contains($0.id) && $0.enabled }
+        for profile in profiles { beginAutoConnection(profile) }
         busy = true; changed?()
         defer { busy = false; changed?() }
         // Bound subprocess concurrency while letting each account fail independently.
-        let profiles = preferences.profiles.filter { preferences.visible.contains($0.id) && $0.enabled }
         await withTaskGroup(of: Void.self) { group in
             for (index, profile) in profiles.enumerated() {
                 if index >= 3 { await group.next() }
@@ -97,6 +118,7 @@ import AppKit
         }
     }
     private func refresh(_ profile: Profile, force: Bool) async {
+        defer { changed?() }
         do {
             let reader = client(profile)
             defer { reader.releaseIdleResources() }
@@ -108,7 +130,10 @@ import AppKit
                 usages[profile.id] = Usage(id: profile.id, status: account.status, message: account.message ?? "계정을 연결해주세요.")
                 return
             }
-            if oldEmail != account.email { usages[profile.id] = Usage(id: profile.id); lastClaudeAttempt.removeValue(forKey: profile.id) }
+            if oldEmail != account.email || usages[profile.id]?.status == "connecting" {
+                usages[profile.id] = Usage(id: profile.id, status: "loading", message: "사용량을 조회하고 있습니다.")
+                lastClaudeAttempt.removeValue(forKey: profile.id)
+            }
             if profile.service == "claude" {
                 let bridge = ClaudeBridge(profile: profile, root: root)
                 try bridge.bind(account.email?.lowercased() ?? "unknown")
@@ -128,16 +153,19 @@ import AppKit
         catch {
             let message = errorMessage(error)
             usages[profile.id] = Usage(id: profile.id, status: "error", message: message)
-            if accounts[profile.id]?.status != "connected" { accounts[profile.id]?.message = message }
+            if accounts[profile.id]?.status != "connected" { accounts[profile.id]?.status = "error"; accounts[profile.id]?.message = message }
         }
     }
     func state(maxHeight: Double) -> Object {
+        history.retainProviders(preferences.visible)
         let providers: [Object] = preferences.visible.compactMap { id in
             guard let profile = preferences.profiles.first(where: { $0.id == id }) else { return nil }
             var usage = usages[id] ?? Usage(id: id); usage.id = id
             let account = accounts[id]
             let identity = account?.status == "connected" ? account?.email.map { "\(account!.source):\($0.lowercased()):\(usage.plan ?? account?.plan ?? "")" } : nil
+            history.observe(usage, identity: identity)
             usage = tracker.observe(usage, identity: identity, interval: preferences.intervalMinutes, window: preferences.windowMinutes)
+            if trendsVisible { usage = history.withTrends(usage, identity: identity) }
             var result = usage.object
             result["name"] = profile.displayName; result["defaultName"] = profile.name; result["service"] = profile.service
             return result
@@ -147,6 +175,7 @@ import AppKit
             "collapsed": preferences.viewMode == 1, "lastCardView": preferences.viewMode, "transitionPhase": "settled",
             "animateTransitions": preferences.animateTransitions, "logoRotation": logoRotation, "logoRotationStep": logoRotationStep, "maxCardHeight": maxHeight,
             "measurementIntervalMinutes": preferences.intervalMinutes, "measurementWindowMinutes": preferences.windowMinutes,
+            "history": historyVisible ? history.snapshot(providers: preferences.profiles.map(\.id)) : NSNull(),
             "accounts": preferences.profiles.map { profile -> Object in
                 var result = JSON.object(accounts[profile.id] ?? Account(id: profile.id))
                 result["name"] = profile.displayName; result["defaultName"] = profile.name; result["service"] = profile.service
@@ -155,6 +184,7 @@ import AppKit
             "serviceCatalog": [["id": "codex", "name": "Codex", "symbol": "⌘", "description": "ChatGPT 구독 한도 · 자동 조회", "loginName": "ChatGPT"],
                                ["id": "claude", "name": "Claude", "symbol": "✳", "description": "Claude 구독 한도 · 자동 조회", "loginName": "Claude Code"]]]
     }
+    func interruptHistory() { history.interrupt() }
     func action(_ message: Object) async {
         guard let action = message["action"] as? String, !stopped else { return }
         if action == "cancelLogin" {
@@ -164,6 +194,8 @@ import AppKit
         if action == "reopenLogin" { if let id = loginProvider, let url = clients[id]?.loginURL { NSWorkspace.shared.open(url) }; return }
         switch action {
         case "ready": changed?(); start(); return
+        case "setHistoryVisible": historyVisible = message["visible"] as? Bool == true; changed?(); return
+        case "setTrendsVisible": trendsVisible = message["visible"] as? Bool == true; changed?(); return
         case "toggleLogo", "collapse": hide?(); return
         case "close": NSApplication.shared.terminate(nil); return
         case "toggleMotion": preferences.animateTransitions.toggle()
@@ -197,7 +229,9 @@ import AppKit
                 do { try removeProfile(id); notice = nil }
                 catch { notice = "계정 항목을 삭제하지 못했습니다. 저장 폴더와 Claude 상태줄 설정을 확인해주세요."; changed?(); return }
             case "showProvider":
-                if let id = message["provider"] as? String, preferences.profiles.contains(where: { $0.id == id }), !preferences.visible.contains(id) { preferences.visible.append(id) }
+                if let id = message["provider"] as? String, let profile = preferences.profiles.first(where: { $0.id == id }), !preferences.visible.contains(id) {
+                    preferences.visible.append(id); beginAutoConnection(profile)
+                }
             case "setAccountNickname":
                 if let id = message["accountId"] as? String, let index = preferences.profiles.firstIndex(where: { $0.id == id }), let text = message["nickname"] as? String {
                     let alias = String(text.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(String.init).joined().trimmingCharacters(in: .whitespacesAndNewlines).prefix(24))
@@ -213,7 +247,7 @@ import AppKit
                         guard old.id == old.service else { busy = false; return }
                         if old.service == "claude" { try ClaudeBridge(profile: old, root: root).uninstall() }
                         preferences.profiles[index].useSystem = true; preferences.profiles[index].enabled = true
-                        let profile = preferences.profiles[index]; reset(profile)
+                        let profile = preferences.profiles[index]; reset(profile); beginAutoConnection(profile); changed?()
                         let account = try await client(profile).account(); accounts[id] = account
                         if account.status == "connected", profile.service == "claude" { try ClaudeBridge(profile: profile, root: root).install() }
                         notice = account.status == "connected" ? "기존 CLI 계정을 연결했습니다." : "CLI에서 먼저 로그인한 후 새로고침해주세요."
