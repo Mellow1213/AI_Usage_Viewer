@@ -4,6 +4,14 @@ Codex와 Claude의 **구독 잔여량·초기화 시간·관측 소비량**을 �
 
 **[Windows 설치 파일 다운로드](https://github.com/Mellow1213/AI_Usage_Viewer/releases/latest/download/Mellow.AIUsageViewer-win-Setup.exe)** · [Portable ZIP](https://github.com/Mellow1213/AI_Usage_Viewer/releases/latest/download/Mellow.AIUsageViewer-win-Portable.zip) · [1.2.9 변경 사항](docs/releases/1.2.9.md) · [문제 보고](https://github.com/Mellow1213/AI_Usage_Viewer/issues)
 
+- [Windows 버전](#windows-버전)
+- [macOS 버전](#macos-버전)
+- [공통 기능과 계정 관리](#공통-기능과-계정-관리)
+- [표시값과 사용량 측정](#표시값과-사용량-측정)
+- [공통 문제 해결](#공통-문제-해결)
+- [최근 반영된 변경](#최근-반영된-변경)
+- [오픈소스 배포 범위와 라이선스](#오픈소스-배포-범위와-라이선스)
+- [개발 문서](#개발-문서)
 > **지원 대상: Windows x64.** 1.2.7부터 Mac 빌드·CI·신규 배포를 중단했습니다. 과거 Mac 소스와 이미 공개된 릴리스는 보관합니다.
 
 ## 화면 예시
@@ -236,6 +244,16 @@ UI만 살펴보려면 `WidgetUI`에서 `npm run dev` 후 표시된 로컬 URL에
 
 React UI는 `WidgetUI`, Windows 호스트는 `UsageWidget`에 있습니다. OpenClaw Dashboard는 별도 앱·저장소입니다.
 
+## 오픈소스 배포 범위와 라이선스
+
+이 저장소는 [MIT License](LICENSE)를 적용합니다. MIT License는 소프트웨어를 사용·복제·수정·병합·배포·재라이선스·판매할 수 있도록 허용하지만, 저작권 고지와 라이선스 고지를 함께 유지해야 하며 어떠한 보증도 제공하지 않습니다.
+
+- 이 저장소에서 직접 작성·배포하는 소스 코드, 빌드/배포 스크립트, 문서, 프로젝트 설정 파일은 MIT License 적용 대상입니다.
+- 저장소에 포함되거나 실행 시 연동되는 제3자 라이브러리/SDK, 아이콘, 폰트, 이미지, API, 외부 서비스는 각 원저작자·제공자의 별도 라이선스 및 이용약관을 따릅니다. MIT License는 해당 자산·서비스를 재허가하지 않습니다.
+- 이 저장소를 기반으로 바이너리·설치 파일·패키지를 재배포할 때는 관련 저작권 고지와 라이선스 고지(프로젝트 및 포함된 제3자 구성요소)를 배포물에 포함해야 합니다.
+- `AI Usage Viewer`, 서비스명, 상표, 로고, API 제공자 권리 및 브랜드 사용 조건은 MIT License 범위에 자동 포함되지 않으며 각 권리자의 정책을 따라야 합니다.
+
+## 개발 문서
 ## 기여와 라이선스
 
 버그 보고·문서 수정·기능 제안은 Issues 또는 Pull Request로 제출할 수 있습니다. 큰 기능 변경은 먼저 이슈에서 범위를 정리하고, 변경에 맞는 검증 결과를 함께 적어주세요. 실제 계정 데이터와 생성된 `Release/` 바이너리는 제출 대상에 포함하지 않습니다.
