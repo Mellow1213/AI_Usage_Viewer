@@ -68,6 +68,7 @@ internal static partial class Program
         SetPresenceField("_hiddenUntil", DateTimeOffset.UtcNow.AddSeconds(-1));
         InvokePresence("UpdatePresence");
         Check(_window.IsVisible, "Expired temporary hiding restores the logo automatically");
+        await VerifyLogoLocatorAsync();
 
         var monitor = new PresenceMonitorInfo { Size = Marshal.SizeOf<PresenceMonitorInfo>() };
         PresenceGetMonitorInfo(PresenceMonitorFromWindow(handle, 2), ref monitor);
@@ -91,8 +92,12 @@ internal static partial class Program
         await WaitAsync(() => _window.ViewMode == WidgetViewMode.Expanded, "Restarted card");
         Check(!_window.Topmost, "Restart also retains the independent card pin preference");
         var tray = GetPresenceField<Forms.NotifyIcon>("_tray");
+        InvokePresence("FindLogo");
+        var locator = GetPresenceField<LogoLocatorWindow>("_logoLocator");
         _window.Close();
         Check(!tray.Visible, "Closing the widget removes its tray icon");
+        Check(!locator.IsVisible && !GetPresenceField<bool>("_locatorHotkeyRegistered"),
+            "Closing the widget disposes the locator and unregisters its shortcut");
         _window = null;
     }
 
@@ -112,14 +117,20 @@ internal static partial class Program
             Check(true, "A real fullscreen window selected by the foreground probe hides the logo on its monitor");
             var menu = GetPresenceField<Forms.ContextMenuStrip>("_presenceMenu");
             var nativeForeground = PresenceGetForegroundWindow();
+            using var activation = new LocatorActivationProbe();
             menu.Show(Forms.Cursor.Position);
             menu.Items.OfType<Forms.ToolStripMenuItem>().Single(item => item.Text == "다시 표시").PerformClick();
             menu.Close();
             await Task.Delay(750);
-            Check(_window!.IsVisible && PresenceGetForegroundWindow() == nativeForeground, "Explicit tray restoration stays visible over fullscreen without taking focus");
+            Check(_window!.IsVisible && !activation.Activated, "Explicit tray restoration stays visible over fullscreen without taking focus");
+            InvokePresence("FindLogo");
+            Check(GetPresenceField<LogoLocatorWindow?>("_logoLocator")?.IsVisible == true && _window.IsVisible
+                && !activation.Activated, "Explicit locator appears over fullscreen without taking focus");
+            await WaitAsync(() => GetPresenceField<LogoLocatorWindow?>("_logoLocator") is null, "Fullscreen locator expires");
+            Check(_window.IsVisible && !activation.Activated, "Fullscreen locator expiry preserves visibility without activating the widget");
             // Clear the explicit override by toggling the user's setting off and back on.
             InvokePresence("ToggleFullscreenHide");
-            Check(_window.IsVisible && PresenceGetForegroundWindow() == nativeForeground, "Disabling fullscreen hiding leaves the logo visible without activation");
+            Check(_window.IsVisible && !activation.Activated, "Disabling fullscreen hiding leaves the logo visible without activation");
             InvokePresence("ToggleFullscreenHide");
             Check(!_window.IsVisible, "Re-enabling fullscreen hiding immediately hides the logo");
             var other = new Window { Title = "Ordinary presence fixture", Width = 120, Height = 100, ShowActivated = false };
@@ -129,7 +140,7 @@ internal static partial class Program
                 var ordinaryHandle = new WindowInteropHelper(other).Handle;
                 _presenceTestForeground = ordinaryHandle;
                 await WaitAsync(() => _window.IsVisible, "Logo restores after fullscreen loses focus");
-                Check(PresenceGetForegroundWindow() == nativeForeground, "Automatic restoration leaves actual keyboard focus unchanged");
+                Check(!activation.Activated, "Automatic restoration leaves actual keyboard focus unchanged");
             }
             finally { other.Close(); }
         }

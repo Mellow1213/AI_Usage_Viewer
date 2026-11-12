@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RollForward>Major</RollForward>
     <AssemblyName>AIUsageWidget</AssemblyName>
-    <Version>1.2.9</Version>
+    <Version>1.2.10</Version>
     <StartupObject>UsageWidget.App</StartupObject>
     <ApplicationIcon>Assets\usage-widget.ico</ApplicationIcon>
     <!-- Debug symbols stay in local build output; public packages must not contain developer source paths. -->
@@ -25,6 +25,7 @@
     <Page Include="App.xaml" />
     <Content Include="../WidgetUI/dist/**/*" Link="Web/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="Bridge/claude-statusline.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../LICENSE" Link="LICENSE" CopyToPublishDirectory="PreserveNewest" />
     <InternalsVisibleTo Include="UsageWidget.Verification" />
     <Resource Include="Assets/usage-widget.ico" />
     <Resource Include="Assets/usage-widget.png" />

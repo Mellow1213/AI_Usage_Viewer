@@ -724,6 +724,7 @@ public partial class MainWindow : Window
     private void SetViewMode(WidgetViewMode mode)
     {
         if (_closed || mode == _viewMode) return;
+        StopLogoLocator();
         StopResize();
         _transitionFrom = _viewMode;
         // Hiding is independent of the card's detail level; remember either card for restoration.
@@ -748,6 +749,7 @@ public partial class MainWindow : Window
         if (_transitionPhase != "resizing") return;
         _transitionPhase = "settled";
         UpdatePresence();
+        TryShowLogoLocator();
         Publish();
     }
 
@@ -860,6 +862,12 @@ public partial class MainWindow : Window
 
     internal IntPtr WindowProc(IntPtr handle, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (message == 0x0312 && wParam.ToInt32() == LocatorHotkeyId) // WM_HOTKEY
+        {
+            handled = true;
+            FindLogo();
+            return IntPtr.Zero;
+        }
         if (_viewMode == WidgetViewMode.Logo && message == 0x0021) // WM_MOUSEACTIVATE
         {
             handled = true;

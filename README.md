@@ -2,7 +2,7 @@
 
 Codex와 Claude의 **구독 잔여량·초기화 시간·관측 소비량**을 확인하는 Windows x64 데스크톱 위젯입니다. 여러 계정을 한곳에서 보고, 필요할 때 별도 사용량 추이 화면으로 최근 소비를 살펴볼 수 있습니다.
 
-**[Windows 설치 파일 다운로드](https://github.com/Mellow1213/AI_Usage_Viewer/releases/latest/download/Mellow.AIUsageViewer-win-Setup.exe)** · [Portable ZIP](https://github.com/Mellow1213/AI_Usage_Viewer/releases/latest/download/Mellow.AIUsageViewer-win-Portable.zip) · [1.2.9 변경 사항](docs/releases/1.2.9.md) · [문제 보고](https://github.com/Mellow1213/AI_Usage_Viewer/issues)
+**[Windows 설치 파일 다운로드](https://github.com/Mellow1213/AI_Usage_Viewer/releases/latest/download/Mellow.AIUsageViewer-win-Setup.exe)** · [Portable ZIP](https://github.com/Mellow1213/AI_Usage_Viewer/releases/latest/download/Mellow.AIUsageViewer-win-Portable.zip) · [1.2.10 변경 사항](docs/releases/1.2.10.md) · [문제 보고](https://github.com/Mellow1213/AI_Usage_Viewer/issues)
 
 - [Windows 버전](#windows-버전)
 - [macOS 버전](#macos-버전)
@@ -161,6 +161,7 @@ Claude는 주간 잔여량을 크게, 5시간 잔여량을 보조로 표시합�
 | 삼각형 로고·Escape | 로고만 보기 ↔ 이전 카드 모드. 그래프 탐색 중 Escape는 선택 해제에 사용합니다. |
 | 로고 드래그·클릭 | 로고 창을 이동하거나 이전 카드로 돌아갑니다. Enter·Space로도 복원합니다. |
 | 로고 우클릭·Shift+F10·트레이 우클릭 | 로고 고정·전체 화면 숨김·5분간 숨기기·복원 |
+| Ctrl+Alt+L·트레이의 로고 찾기 | 현재 위치에서 앞으로 표시하고 약 1.4초 동안 링으로 강조. 위치·보기·키보드 포커스와 기존 고정 설정 유지 |
 | 설정 → 화면 설정 | 전환 효과, 화면 모서리, 로고 고정·전체 화면 숨김 |
 | 설정 → 계정 관리 | AI 추가·로그인·별명·삭제 |
 | 설정 → 사용량 측정 → 그래프 보기 | 필요할 때 여는 최근 기간 분석 |
@@ -230,13 +231,15 @@ UI만 살펴보려면 `WidgetUI`에서 `npm run dev` 후 표시된 로컬 URL에
 
 ## 변경 이력과 문서
 
+**1.2.10**부터 `Ctrl+Alt+L` 또는 트레이의 **로고 찾기**로 위젯을 앞으로 표시하고 로고를 잠시 강조할 수 있습니다.
+
 **1.2.9**: 설정의 뒤로 가기·닫기를 실제 진입 경로에 맞게 통일하고 현재 경로를 표시합니다. 메인 바로가기에서 연 화면은 뒤로 가기로 메인에 복귀하며, 계정 추가를 마친 뒤에는 선택창을 다시 열지 않습니다.
 
 **1.2.8**: 그래프를 `설정 → 사용량 측정 → 그래프 보기`에서 필요할 때 여는 추가 분석 기능으로 옮겼습니다. 설정 첫 화면의 추이 바로가기와 측정 설정의 비교 구간 버튼을 정리했습니다.
 
 **1.2.7**: 별도 사용량 추이 화면, 현재 시각 기준 즉시 계산, 구간 상세·관측 공백 표시, Windows 전용 빌드·배포로 정리했습니다.
 
-- [1.2.9 릴리스 노트](docs/releases/1.2.9.md) · [1.2.8 릴리스 노트](docs/releases/1.2.8.md) · [1.2.7 릴리스 노트](docs/releases/1.2.7.md) · [전체 Releases](https://github.com/Mellow1213/AI_Usage_Viewer/releases)
+- [1.2.10 릴리스 노트](docs/releases/1.2.10.md) · [1.2.9 릴리스 노트](docs/releases/1.2.9.md) · [1.2.8 릴리스 노트](docs/releases/1.2.8.md) · [전체 Releases](https://github.com/Mellow1213/AI_Usage_Viewer/releases)
 - [Windows 개발 안내](UsageWidget/README.md) · [배포 가이드](docs/releasing.md)
 - [README 구성 점검표와 참고 저장소](docs/readme-checklist.md)
 - [성능 측정 기록](docs/performance.md) · [메모리 측정 기록](docs/memory.md)

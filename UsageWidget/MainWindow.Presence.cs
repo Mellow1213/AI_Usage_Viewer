@@ -33,7 +33,13 @@ public partial class MainWindow
         {
             if (e.Button == Forms.MouseButtons.Left) RestoreFromTray();
         };
-        _presenceTimer.Tick += (_, _) => { if (_ready && !_closed) UpdatePresence(); };
+        InitializeLogoLocator();
+        _presenceTimer.Tick += (_, _) =>
+        {
+            if (!_ready || _closed) return;
+            UpdatePresence();
+            TryShowLogoLocator();
+        };
         _presenceTimer.Start();
     }
 
@@ -41,7 +47,7 @@ public partial class MainWindow
     {
         var logo = _viewMode == WidgetViewMode.Logo;
         // Topmost is a placement policy; never activate the window to enforce it.
-        Topmost = logo ? _logoPinned : _cardPinned;
+        Topmost = IsLogoLocatorActive || (logo ? _logoPinned : _cardPinned);
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero) return;
         var previous = GetWindowLongPtr(handle, -20).ToInt64(); // GWL_EXSTYLE
@@ -71,6 +77,7 @@ public partial class MainWindow
     private void HideLogoTemporarily()
     {
         if (_viewMode != WidgetViewMode.Logo) return;
+        StopLogoLocator();
         _hiddenUntil = DateTimeOffset.UtcNow.AddMinutes(5);
         UpdatePresence();
     }
@@ -95,7 +102,7 @@ public partial class MainWindow
         var fullscreen = _viewMode == WidgetViewMode.Logo && _hideLogoInFullscreen && IsFullscreenOnWidgetMonitor(foreground);
         if (fullscreen) _lastFullscreenWindow = foreground;
         else if (!transient) _lastFullscreenWindow = IntPtr.Zero;
-        var hide = _viewMode == WidgetViewMode.Logo && _transitionPhase == "settled" && !IsResizing
+        var hide = !IsLogoLocatorActive && _viewMode == WidgetViewMode.Logo && _transitionPhase == "settled" && !IsResizing
             && (_hiddenUntil is not null || (_hideLogoInFullscreen && _fullscreenOverrideWindow != foreground
                 && fullscreen));
         if (hide == _presenceHidden) return;
@@ -156,6 +163,12 @@ public partial class MainWindow
             _presenceMenu.Items.Add(item);
         }
         Add("다시 표시", RestoreFromTray);
+        var find = new Forms.ToolStripMenuItem("로고 찾기");
+        find.ShortcutKeyDisplayString = _locatorHotkeyRegistered ? LocatorShortcut : "";
+        find.Click += (_, _) => FindLogo();
+        _presenceMenu.Items.Add(find);
+        if (!_locatorHotkeyRegistered)
+            Add($"{LocatorShortcut} · 단축키 등록 안 됨", () => { }, enabled: false);
         Add("이전 카드로 펼치기", () => { _hiddenUntil = null; SetViewMode(_lastCardView); UpdatePresence(); });
         _presenceMenu.Items.Add(new Forms.ToolStripSeparator());
         Add("로고 항상 위에 표시", ToggleLogoPin, _logoPinned);
@@ -168,6 +181,7 @@ public partial class MainWindow
     private void DisposePresence()
     {
         _presenceTimer.Stop();
+        DisposeLogoLocator();
         if (_tray is not null) { _tray.Visible = false; _tray.Dispose(); }
         _presenceMenu?.Dispose();
         _trayIcon?.Dispose();
