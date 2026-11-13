@@ -223,6 +223,7 @@ public partial class MainWindow : Window
                     _ready = true;
                     Startup.Visibility = Visibility.Collapsed;
                     Browser.Visibility = Visibility.Visible;
+                    UpdateWebViewMemoryTarget();
                     // A UI handshake must preserve pending connections and already received usage.
                     Publish(force: true);
                     _timer.Start();
@@ -738,6 +739,7 @@ public partial class MainWindow : Window
         ApplyPresencePolicy();
         _viewRevision++;
         _transitionPhase = _animateTransitions ? "hiding" : "settled";
+        UpdateWebViewMemoryTarget();
         if (!_animateTransitions) ResizeTo(mode == WidgetViewMode.Logo ? 48 : 304, TargetHeight());
         Publish();
     }
@@ -748,6 +750,7 @@ public partial class MainWindow : Window
     {
         if (_transitionPhase != "resizing") return;
         _transitionPhase = "settled";
+        UpdateWebViewMemoryTarget();
         UpdatePresence();
         TryShowLogoLocator();
         Publish();

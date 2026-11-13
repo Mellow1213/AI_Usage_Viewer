@@ -38,6 +38,7 @@ public partial class MainWindow
         {
             if (!_ready || _closed) return;
             UpdatePresence();
+            UpdateWebViewMemoryTarget();
             TryShowLogoLocator();
         };
         _presenceTimer.Start();

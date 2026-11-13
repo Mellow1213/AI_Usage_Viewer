@@ -132,6 +132,8 @@ CPU·메모리 측정은 다음 명령으로 실행하며 `performance.json`에 
 dotnet run --project .\WidgetVerification\UsageWidget.Verification.csproj -c Release -- artifacts\performance --performance-only
 ```
 
+로고 상태의 메모리와 펼치기 시간은 `--logo-memory-only`로 측정합니다. 격리 프로필에서 예시 카드 두 개를 사용해 접기·펼치기를 두 차례 반복합니다. 접힌 화면이 안정된 뒤 12·14·16초에 WPF와 WebView2 전체의 전용 상주 RAM 및 전용 커밋을 표본으로 수집하고, 결과는 `logo-memory.json`에 저장합니다. 1.2.10 호스트를 사용하는 비교 실행에서는 `--baseline`으로 접힌 상태의 정상 메모리 모드를 검증합니다. [1.2.11 측정 결과](../docs/releases/1.2.11.md)
+
 측정 조건과 변경 전후 수치는 [성능 비교 기록](../docs/performance.md)에 있습니다. 고정 예시 데이터의 짧은 측정이므로 실제 계정·네트워크 조회를 포함한 장시간 운용의 보장값으로 사용하지 않습니다.
 
 개발용 저장 위치를 분리하려면 다음처럼 실행합니다.

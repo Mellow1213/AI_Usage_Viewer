@@ -2,7 +2,7 @@
 
 Codex와 Claude의 **구독 잔여량·초기화 시간·관측 소비량**을 확인하는 Windows x64 데스크톱 위젯입니다. 여러 계정을 한곳에서 보고, 필요할 때 별도 사용량 추이 화면으로 최근 소비를 살펴볼 수 있습니다.
 
-**[Windows 설치 파일 다운로드](https://github.com/Mellow1213/AI_Usage_Viewer/releases/latest/download/Mellow.AIUsageViewer-win-Setup.exe)** · [Portable ZIP](https://github.com/Mellow1213/AI_Usage_Viewer/releases/latest/download/Mellow.AIUsageViewer-win-Portable.zip) · [1.2.10 변경 사항](docs/releases/1.2.10.md) · [문제 보고](https://github.com/Mellow1213/AI_Usage_Viewer/issues)
+**[Windows 설치 파일 다운로드](https://github.com/Mellow1213/AI_Usage_Viewer/releases/latest/download/Mellow.AIUsageViewer-win-Setup.exe)** · [Portable ZIP](https://github.com/Mellow1213/AI_Usage_Viewer/releases/latest/download/Mellow.AIUsageViewer-win-Portable.zip) · [1.2.11 변경 사항](docs/releases/1.2.11.md) · [문제 보고](https://github.com/Mellow1213/AI_Usage_Viewer/issues)
 
 - [Windows 버전](#windows-버전)
 - [macOS 버전](#macos-버전)
@@ -231,6 +231,8 @@ UI만 살펴보려면 `WidgetUI`에서 `npm run dev` 후 표시된 로컬 URL에
 
 ## 변경 이력과 문서
 
+**1.2.11**부터 로고만 보이는 상태가 5초 이상 이어지면 WebView2를 저메모리 모드로 전환하고, 다시 펼칠 때 정상 모드로 돌아갑니다.
+
 **1.2.10**부터 `Ctrl+Alt+L` 또는 트레이의 **로고 찾기**로 위젯을 앞으로 표시하고 로고를 잠시 강조할 수 있습니다.
 
 **1.2.9**: 설정의 뒤로 가기·닫기를 실제 진입 경로에 맞게 통일하고 현재 경로를 표시합니다. 메인 바로가기에서 연 화면은 뒤로 가기로 메인에 복귀하며, 계정 추가를 마친 뒤에는 선택창을 다시 열지 않습니다.
@@ -239,7 +241,7 @@ UI만 살펴보려면 `WidgetUI`에서 `npm run dev` 후 표시된 로컬 URL에
 
 **1.2.7**: 별도 사용량 추이 화면, 현재 시각 기준 즉시 계산, 구간 상세·관측 공백 표시, Windows 전용 빌드·배포로 정리했습니다.
 
-- [1.2.10 릴리스 노트](docs/releases/1.2.10.md) · [1.2.9 릴리스 노트](docs/releases/1.2.9.md) · [1.2.8 릴리스 노트](docs/releases/1.2.8.md) · [전체 Releases](https://github.com/Mellow1213/AI_Usage_Viewer/releases)
+- [1.2.11 릴리스 노트](docs/releases/1.2.11.md) · [1.2.10 릴리스 노트](docs/releases/1.2.10.md) · [1.2.9 릴리스 노트](docs/releases/1.2.9.md) · [전체 Releases](https://github.com/Mellow1213/AI_Usage_Viewer/releases)
 - [Windows 개발 안내](UsageWidget/README.md) · [배포 가이드](docs/releasing.md)
 - [README 구성 점검표와 참고 저장소](docs/readme-checklist.md)
 - [성능 측정 기록](docs/performance.md) · [메모리 측정 기록](docs/memory.md)

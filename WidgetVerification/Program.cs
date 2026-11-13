@@ -34,6 +34,7 @@ internal static partial class Program
                 StorageIsolationChecks.Run(Path.Combine(_output, "storage-isolation"), Check);
                 if (args.Contains("--updates-only")) await VerifyUpdatesAsync();
                 else if (args.Contains("--presence-only")) await VerifyPresenceAsync();
+                else if (args.Contains("--logo-memory-only")) await MeasureLogoMemoryAsync(args.Contains("--baseline"));
                 else if (args.Contains("--performance-only")) await MeasurePerformanceAsync();
                 else if (args.Contains("--performance-checks-only")) await VerifyPerformanceChangesAsync();
                 else if (args.Contains("--multi-ai-only")) await VerifyMultipleAiAsync();

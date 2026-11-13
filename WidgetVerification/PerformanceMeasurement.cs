@@ -9,22 +9,30 @@ internal static class PerformanceMeasurement
 {
     internal sealed record Result(string Mode, double Seconds, double CpuSeconds, double CpuPercent,
         double PrivateResidentMB, double PrivateCommitMB, double RendererTaskSeconds, int ProcessCount);
+
+    internal static (double Resident, double Commit) SampleMemory(CoreWebView2 web)
+    {
+        using var memoryBuffer = new WorkingSetBuffer();
+        return ReadMemory(web.Environment.GetProcessInfos().Select(item => item.ProcessId).Append(Environment.ProcessId), memoryBuffer);
+    }
+
+    private static (double Resident, double Commit) ReadMemory(IEnumerable<int> ids, WorkingSetBuffer memoryBuffer)
+    {
+        double resident = 0, commit = 0;
+        foreach (var id in ids)
+        {
+            using var process = Process.GetProcessById(id);
+            resident += memoryBuffer.PrivateResidentBytes(process.Handle);
+            commit += process.PrivateMemorySize64;
+        }
+        return (resident / 1048576, commit / 1048576);
+    }
+
     internal static async Task<Result> MeasureAsync(CoreWebView2 web, string mode, int seconds)
     {
         var ids = web.Environment.GetProcessInfos().Select(item => item.ProcessId).Append(Environment.ProcessId).Order().ToArray();
         using var memoryBuffer = new WorkingSetBuffer();
         double Cpu() => ids.Sum(id => { using var process = Process.GetProcessById(id); return process.TotalProcessorTime.TotalSeconds; });
-        (double resident, double commit) Memory()
-        {
-            double resident = 0, commit = 0;
-            foreach (var id in ids)
-            {
-                using var process = Process.GetProcessById(id);
-                resident += memoryBuffer.PrivateResidentBytes(process.Handle);
-                commit += process.PrivateMemorySize64;
-            }
-            return (resident / 1048576, commit / 1048576);
-        }
         async Task<double> TaskDuration()
         {
             using var json = JsonDocument.Parse(await web.CallDevToolsProtocolMethodAsync("Performance.getMetrics", "{}"));
@@ -33,19 +41,19 @@ internal static class PerformanceMeasurement
         var startTasks = await TaskDuration();
         var startCpu = Cpu();
         var watch = Stopwatch.StartNew();
-        var samples = new List<(double resident, double commit)> { Memory() };
+        var samples = new List<(double Resident, double Commit)> { ReadMemory(ids, memoryBuffer) };
         for (var i = 0; i < seconds / 5; i++)
         {
             await Task.Delay(5000);
             var currentIds = web.Environment.GetProcessInfos().Select(item => item.ProcessId).Append(Environment.ProcessId).Order().ToArray();
             if (!ids.SequenceEqual(currentIds)) throw new InvalidOperationException("WebView2 processes changed during measurement; rerun instead of comparing incomplete CPU totals.");
-            samples.Add(Memory());
+            samples.Add(ReadMemory(ids, memoryBuffer));
         }
         var elapsed = watch.Elapsed.TotalSeconds;
         var cpu = Cpu() - startCpu;
         var tasks = await TaskDuration() - startTasks;
         return new(mode, elapsed, cpu, cpu / elapsed / Environment.ProcessorCount * 100,
-            samples.Average(item => item.resident), samples.Average(item => item.commit), tasks, ids.Length);
+            samples.Average(item => item.Resident), samples.Average(item => item.Commit), tasks, ids.Length);
     }
     [DllImport("psapi.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
