@@ -598,8 +598,8 @@ function App() {
     title={state.busy ? '사용량 업데이트 중' : menuBar ? '새로고침 · ⌘R 또는 F5' : '새로고침 · Codex 자동 갱신 60초'}
     disabled={state.providers.length === 0 || state.busy || state.authBusy} onClick={() => action('refresh')}><RefreshCw size={menuBar ? 14 : 12} /></button>;
   return <div className={`view-shell ${menuBar ? 'menu-bar-host' : ''} ${changing ? 'is-transitioning' : ''} ${logoMoving ? 'is-logo-moving' : ''}`} ref={panel}><AnimatePresence initial={false} mode="popLayout">
-  {mode === 2 ? <motion.div key="logo" data-view={mode} className="logo-shell" role="button" tabIndex={0} aria-label="이전 카드로 돌아가기"
-    title={`${state.lastCardView === 1 ? '간략히' : '자세히'} 보기로 돌아가기 · 드래그해서 이동 · 우클릭으로 로고 설정`} onClick={() => action('toggleLogo')}
+  {mode === 2 ? <motion.div key="logo" data-view={mode} className="logo-shell" role="button" tabIndex={0}
+    aria-label={`${state.lastCardView === 1 ? '간략히' : '자세히'} 보기로 돌아가기`} onClick={() => action('toggleLogo')}
     onContextMenu={event => { event.preventDefault(); action('logoMenu'); }}
     onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); action('toggleLogo'); } else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); action('logoMenu'); } }}
     initial={transitionReduce ? false : { opacity: 0 }} animate={{ opacity: changing ? 0 : 1 }} exit={{ opacity: 0, transition: { duration: transitionReduce ? 0 : .08 } }} transition={{ duration: transitionReduce ? 0 : .08 }}>

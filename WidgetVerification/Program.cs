@@ -343,7 +343,7 @@ internal static partial class Program
         await Task.Delay(650);
         Check(_window.ViewMode == WidgetViewMode.Logo && _window.ActualWidth <= 50 && _window.ActualHeight <= 50,
             "Clicking the full-card triangle goes directly to the logo");
-        await AssertScriptAsync("document.querySelector('.logo-shell').title.includes('자세히 보기로 돌아가기')", "Minimized full card offers restoration to its remembered detail level");
+        await AssertScriptAsync("document.querySelector('.logo-shell').getAttribute('aria-label')==='자세히 보기로 돌아가기' && !document.querySelector('.logo-shell').hasAttribute('title')", "The logo announces full-card restoration without a hover tooltip");
         await ScriptAsync("document.querySelector('.logo-shell').click()");
         await Task.Delay(650);
         Check(_window.ViewMode == WidgetViewMode.Expanded && Math.Abs(_window.ActualHeight-fullHeight)<3,
@@ -433,7 +433,7 @@ internal static partial class Program
         await WaitAsync(() => _window.Ready, "restored logo ready");
         Check(_window.ViewMode == WidgetViewMode.Logo && _window.ActualWidth <= 50 && _window.ActualHeight <= 50,
             "Logo mode and native window size survive restart");
-        await AssertScriptAsync("document.querySelector('.logo-shell').title.includes('간략히 보기로 돌아가기')", "The compact-card restoration choice survives restart while minimized");
+        await AssertScriptAsync("document.querySelector('.logo-shell').getAttribute('aria-label')==='간략히 보기로 돌아가기'", "The compact-card restoration choice survives restart while minimized");
         Check(DashboardPreferences.Read(uiProfile, new()).ProviderIds.SequenceEqual(new[] { "codex", "claude" }), "Selected AI cards and their order survive restart");
         Check(MeasurementPreferences.Read(uiProfile) is { IntervalMinutes: 180, WindowMinutes: 60 }, "Both measurement settings survive restart");
         _window.SetFixture(codex, claude);
@@ -924,7 +924,7 @@ internal static partial class Program
         _window.Show();
         await WaitAsync(() => _window.Ready, "corner restore ready");
         Check(_window.AnchorCorner == WidgetAnchorCorner.BottomRight, "Screen corner anchor survives a widget restart");
-        await AssertScriptAsync("document.querySelector('.logo-shell').title.includes('자세히 보기로 돌아가기')", "The full-card restoration choice survives restart while minimized");
+        await AssertScriptAsync("document.querySelector('.logo-shell').getAttribute('aria-label')==='자세히 보기로 돌아가기'", "The full-card restoration choice survives restart while minimized");
         _window.SetFixture(codex, claude);
         await ScriptAsync("document.querySelector('.logo-shell').click()");
         await Task.Delay(650);
