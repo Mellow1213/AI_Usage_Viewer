@@ -68,7 +68,6 @@ footer { height: 34px; }
 .triangle.waving path { animation: triangle-wave 3s ease-in-out infinite; animation-delay: calc(var(--wave-phase) * -1s); }
 .triangle.waving.syncing path { animation-duration: .85s; animation-delay: calc(var(--wave-phase) * -.283333s); }
 @keyframes triangle-wave { 0%, 100% { opacity: .45; filter: brightness(1); } 50% { opacity: 1; filter: brightness(1.3); } }
-.logo-shell:hover { background: #1c241b; box-shadow: inset 0 0 0 1px #c4e8a1; }
 .logo-shell:focus-visible { outline: 1px solid #c4e8a1; outline-offset: -4px; }
 .meter > .meter-fill, .meter-trail, .meter-today { position: absolute; inset: 0 auto 0 0; height: 100%; border-radius: inherit; }
 .meter-today { background: #bca379; opacity: .4; }
