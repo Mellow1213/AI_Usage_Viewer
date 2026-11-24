@@ -53,7 +53,7 @@ footer { height: 34px; }
 .account-launch { width: 100%; margin-top: 6px; justify-content: space-between; color: var(--account-accent); }
 .menu p.account-caption { font-size: 8px; line-height: 1.7; margin-bottom: 0; color: #899583; }
 .menu p.account-message { font-size: 9px; color: #cfb68e; }
-.logo-shell { width: 100%; height: 46px; min-width: 0; display: grid; place-items: center; background: #111316; border-radius: 22px; cursor: grab; user-select: none; app-region: drag; -webkit-app-region: drag; }
+.logo-shell { width: 100%; height: 46px; min-width: 0; display: grid; place-items: center; background: #111316; border-radius: 10px; cursor: grab; user-select: none; app-region: drag; -webkit-app-region: drag; }
 .logo-shell .triangle { width: 28px; height: 28px; }
 .triangle.disconnected { color: #777f7b; }
 .logo-toggle { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 28px; padding: 0; background: transparent; border-radius: 7px; flex-shrink: 0; }
